@@ -29,6 +29,7 @@ function combine(){
     shift; # This is to remove the --combine flag from the arguments
     starting_args=true
     only_flag=false # If only_flag is set, only a few files are taken as valid input files. All other files are ignored, but not deleted unless --force is specified. Useful when uploading one new column or so
+    declare -a quizzes; # This stores a list of the column names for the main.csv file
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
@@ -41,14 +42,17 @@ function combine(){
                 drop_quizzes="";
                 shift;
                 while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
-                    if [ ! -f "$WORKING_DIRECTORY/$1" ]; then 
+                    ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
+                    ### If absolute path, store the relative path in $1
+                    if [ ! -f "$(realpath "$1")" ]; then 
                         echo "Invalid/Unnecesary argument passed - $1";
                         shift; continue;
                     fi
+                    relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
                     if [[ "$drop_quizzes" == "" ]]; then 
-                        drop_quizzes+="${1%\.*}"
+                        drop_quizzes+="${relative_path%\.*}"
                     else
-                        drop_quizzes+=",${1%\.*}"
+                        drop_quizzes+=",${relative_path%\.*}"
                     fi
                     shift;
                 done
@@ -57,14 +61,15 @@ function combine(){
             *)
                 if [[ $starting_args == true ]]; then
                     while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
-                        if [ ! -f "$WORKING_DIRECTORY/$1" ] || [[ ! "$1" =~ \.csv$ ]]; then 
+                        if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]]; then 
                             echo "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                         fi
                         only_flag=true
+                        relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
                         if [[ "$only_quizzes" == "" ]]; then 
-                            only_quizzes+="${1%\.*}"
+                            quizzes+="${relative_path%\.*}"
                         else
-                            only_quizzes+=",${1%\.*}"
+                            quizzes+=",${relative_path%\.*}"
                         fi
                         shift;
                     done
@@ -79,7 +84,7 @@ function combine(){
                 fi ;;
         esac
     done
-    if [[ "$2" =~ ^help$ ]]; then
+    if [[ "$1" =~ ^help$ ]]; then
         echo -e "${INFO}Usage..${NORMAL}"
         echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
         echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
@@ -102,7 +107,6 @@ function combine(){
     total_present_flag='false'
     # The -f flag forces new combine, help 
     declare -a old_quizzes;
-    declare -a quizzes; # This stores a list of the column names for the main.csv file
     declare -a updated_quizzes; # This stores a list of quizzes which have been updated more recently than main.csv
     line="Roll_Number,Name,"
     ### What the below if statements do is check if main already has some valid data,
@@ -157,22 +161,28 @@ function combine(){
             done <<< "$file"
         fi
     fi
-    while IFS= read -r -d '' file; do
-        file=${file#"$WORKING_DIRECTORY/"} # Removing the working directory from the file name, because it is unnecesary to store the full path
-        file=${file%.csv} # Removing the .csv extension from the file name
-        file=$(sed 's/\x1A/,/g;' <<< "$file") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
-        if [[ "$file" =~ main ]]; then
-            continue
-        elif echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
-            echo "Quiz $file already exists in the main.csv file. Skipping..."
-            continue
-        elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
-            echo "$file is in the drop list. Skipping..."
-            continue
-        fi
-        quizzes+=("$file")
-        line+="$file,"
-    done < <(find "$WORKING_DIRECTORY" -name "*.csv" -print0)
+    if [[ $only_flag == true ]]; then
+        while read -r -d ',' file; do
+        done <<< "$quizzes"
+    else
+        ### Notes: Here, line changes to become the value of the first line in main, quizzes also changes
+        while IFS= read -r -d '' file; do
+            file=${file#"$WORKING_DIRECTORY/"} # Removing the working directory from the file name, because it is unnecesary to store the full path
+            file=${file%.csv} # Removing the .csv extension from the file name
+            file=$(sed 's/\x1A/,/g;' <<< "$file") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
+            if [[ "$file" =~ main ]]; then
+                continue
+            elif echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "Quiz $file already exists in the main.csv file. Skipping..."
+                continue
+            elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "$file is in the drop list. Skipping..."
+                continue
+            fi
+            quizzes+=("$file")
+            line+="$file,"
+        done < <(find "$WORKING_DIRECTORY" -name "*.csv" -print0)
+    fi
     num_quizzes=$((${#quizzes[@]}+${#old_quizzes[@]}))
     if [[ $num_quizzes -eq 0 ]]; then
         echo -e "${ERROR}${BOLD}No quizzes found ${NORMAL}${BOLD}in the directory $WORKING_DIRECTORY. Please upload some quizzes and try again."
