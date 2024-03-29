@@ -10,6 +10,8 @@ dont_combine_flag=false
 force_flag=false
 drop_flag=false
 WORKING_DIRECTORY=$PWD
+TEMPORARY_FILES=(".temp.txt","temp.txt","temp.ext","temp")
+TEMPORARY_FILE=${TEMPORARY_FILES[0]}
 
 while getopts 'abf:v' flag; do
     case "$flag" in
@@ -144,6 +146,7 @@ function combine(){
         line=${line%,} # Removing the last comma
         IFS=$'\x19'
         if [[ ${#quizzes[@]} -eq 0 ]]; then
+            drop "${drop_quizzes}"
             echo "No new quizzes to add. Exiting..."
             exit 0
         fi
@@ -218,10 +221,44 @@ function combine(){
                     print output
                 }
             }
-        ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/temp.txt"
-        mv "$WORKING_DIRECTORY/temp.txt" "$WORKING_DIRECTORY/main.csv"
+        ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
         # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
     fi
+    if [[ drop_flag == true ]]; then
+        drop "${drop_quizzes}"
+    fi
+}
+
+function drop(){
+    ### Arguments are as follows -> drop_quizzes should be #1
+    IFS=","
+    awk -v drop_quizzes="$1" '
+            BEGIN {
+                FS=","
+                OFS=","
+                split(drop_quizzes, drop_array, ",")
+                for (i in drop_array){
+                    drop_array[drop_array[i]] = 1
+                }
+            }
+            NR==1 {
+                for (i=1; i <= NF; i++){
+                    if ($i in drop_array) {
+                        $i = ""
+                        exclude_array[i] = 1
+                    }
+                }
+                print
+            }
+            NR > 1 {
+                for (i in exclude_array){
+                    $i = ""
+                }
+                print
+            }
+        ' "$WORKING_DIRECTORY/main.csv" | sed -E 's/,+/,/g; s/,$//' > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
 }
 
 function main() {
@@ -239,6 +276,12 @@ function main() {
             # My only worry was that writing .. in the root directory would cause an infinite loop, but looks like it doesn't. Ig the shell internally eliminates starting ../ before passing as $0 
         done
     fi
+    index=0
+    # If the user already has a file with the same name as the temp file I want to use, I do not want to overwrite it. I will just search for another temp file name.
+    while [ $index -lt ${#TEMPORARY_FILES[@]} ] && [ -f "$WORKING_DIRECTORY/$TEMPORARY_FILE" ]; do
+        TEMPORARY_FILE=${TEMPORARY_FILES[$index]}
+        let index++;
+    done
     if [[ $1 == 'combine' ]]; then
         combine "$@"
     else
