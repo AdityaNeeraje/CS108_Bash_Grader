@@ -20,6 +20,7 @@ while getopts 'abf:v' flag; do
 done
 
 function combine(){
+    ### TODO -> If a file is deleted, remove it from main.csv
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
@@ -53,6 +54,8 @@ function combine(){
         echo -e "${INFO}Usage..${NORMAL}"
         echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
         echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
+        echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
+        echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
         exit 0
     fi
     # If force_flag is true, then we don't want to consider what is currently in main.csv. We can empty it, it will be rewritten by later code.
@@ -71,6 +74,7 @@ function combine(){
     # The -f flag forces new combine, help 
     declare -a old_quizzes;
     declare -a quizzes; # This stores a list of the column names for the main.csv file
+    declare -a updated_quizzes; # This stores a list of quizzes which have been updated more recently than main.csv
     line="Roll_Number,Name,"
     ### What the below if statements do is check if main already has some valid data,
     ### if so, we do not want to change that, and these fields are kept as is when awk is run later.
@@ -105,10 +109,21 @@ function combine(){
             file+="," # I noticed that the term after the last comma is not being read, so I am manually adding a comma at the end
             while IFS=, read -r -d "," quiz; do
                 if [ -f "$WORKING_DIRECTORY/$quiz.csv" ]; then
-                    old_quizzes+=("$quiz")
-                    line+="$quiz,"
-                else 
+                    if [[ "$(stat -c %Y "$WORKING_DIRECTORY/main.csv")" -lt "$(stat -c %Y "$WORKING_DIRECTORY/$quiz.csv")" ]]; then
+                        updated_quizzes+=("$quiz")
+                    else
+                        old_quizzes+=("$quiz")
+                        line+="$quiz,"
+                    fi
+                elif [ "$quiz" == "Total" ]; then
                     break
+                else
+                    drop_flag=true
+                    if [[ "$drop_quizzes" == "" ]]; then 
+                        drop_quizzes+="$quiz"
+                    else
+                        drop_quizzes+=",$quiz"
+                    fi
                 fi
             done <<< "$file"
         fi
@@ -137,7 +152,10 @@ function combine(){
         exit 1
     fi
     # Notes: Since update will change the values in main.csv almost simultaneously to being called, we only need to worry about main.csv if the last updated time of main.csv is different from the most recently updated quizzes
-    # if -f "$WORKING_DIRECTORY/main.csv"; then
+    if [[ ${#updated_quizzes[@]} -gt 0 ]]; then
+        echo "main.csv may have outdated information for the following quizzes: ${updated_quizzes[@]}. Updating main.csv for the same..."
+        drop "${updated_quizzes}"
+    fi
     if [[ 0 != 0 ]]; then
         echo "HERE"
     else
@@ -145,12 +163,11 @@ function combine(){
         touch "$WORKING_DIRECTORY/main.csv"
         line=${line%,} # Removing the last comma
         IFS=$'\x19'
-        if [[ ${#quizzes[@]} -eq 0 ]]; then
+        if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
             drop "${drop_quizzes}"
             echo "No new quizzes to add. Exiting..."
             exit 0
         fi
-        for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv"
         # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
         ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
         awk -v QUIZZES="${quizzes[*]}" -v output=$line '
@@ -225,7 +242,7 @@ function combine(){
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
         # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
     fi
-    if [[ drop_flag == true ]]; then
+    if [[ $drop_flag == true ]]; then
         drop "${drop_quizzes}"
     fi
 }
