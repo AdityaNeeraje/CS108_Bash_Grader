@@ -2,6 +2,7 @@
 
 # Color codes
 ERROR='\033[0;31m'
+NON_FATAL_ERROR='\033[0;33m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
 INFO='\033[0;32m'
@@ -26,16 +27,22 @@ function combine(){
         exit 1;
     fi
     shift; # This is to remove the --combine flag from the arguments
+    starting_args=true
+    only_flag=false # If only_flag is set, only a few files are taken as valid input files. All other files are ignored, but not deleted unless --force is specified. Useful when uploading one new column or so
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
-                force_flag=true; shift ;;
+                starting_args=false
+                force_flag=true; shift;
+                continue ;;
             -d|--drop)
+                starting_args=false
                 drop_flag=true;
                 drop_quizzes="";
                 shift;
                 while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
                     if [ ! -f "$WORKING_DIRECTORY/$1" ]; then 
+                        echo "Invalid/Unnecesary argument passed - $1";
                         shift; continue;
                     fi
                     if [[ "$drop_quizzes" == "" ]]; then 
@@ -44,10 +51,32 @@ function combine(){
                         drop_quizzes+=",${1%\.*}"
                     fi
                     shift;
-                done 
-                ;;
-            -*) echo "Invalid flag passed - $1"; shift; break ;;
-            *) echo "Invalid/Unnecesary argument passed - $1"; shift; break ;;
+                done
+                continue ;;
+            -*) echo "Invalid flag passed - $1"; shift; continue ;;
+            *)
+                if [[ $starting_args == true ]]; then
+                    while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                        if [ ! -f "$WORKING_DIRECTORY/$1" ] || [[ ! "$1" =~ \.csv$ ]]; then 
+                            echo "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                        fi
+                        only_flag=true
+                        if [[ "$only_quizzes" == "" ]]; then 
+                            only_quizzes+="${1%\.*}"
+                        else
+                            only_quizzes+=",${1%\.*}"
+                        fi
+                        shift;
+                    done
+                    if [[ "$1" == "help" ]]; then
+                        echo -e "${NON_FATAL_ERROR}${BOLD}Unexpected call to help in the middle of the arguments.${NORMAL}";
+                        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine help${NORMAL}"
+                        shift;
+                    fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
+                else
+                    echo "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                fi ;;
         esac
     done
     if [[ "$2" =~ ^help$ ]]; then
@@ -305,6 +334,23 @@ function main() {
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
     fi
+}
+
+function upload(){
+    if [[ "$1" == "" ]]; then
+        echo -e "${ERROR}${BOLD}No file name provided. Please provide a file name to upload.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
+        exit 1
+    fi
+    if [[ ! -f "$1" ]]; then
+        echo -e "${ERROR}${BOLD}File $1 not found. Please provide a valid file name to upload.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
+        exit 1
+    fi
+    cp "$1" "$WORKING_DIRECTORY"
+    echo "File $1 uploaded successfully."
 }
 
 main "$@"
