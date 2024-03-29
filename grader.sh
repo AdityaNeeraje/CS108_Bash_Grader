@@ -26,10 +26,10 @@ function combine(){
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
-    shift; # This is to remove the --combine flag from the arguments
     starting_args=true
     only_flag=false # If only_flag is set, only a few files are taken as valid input files. All other files are ignored, but not deleted unless --force is specified. Useful when uploading one new column or so
     declare -a quizzes; # This stores a list of the column names for the main.csv file
+    declare -a only_quizzes;
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
@@ -45,7 +45,7 @@ function combine(){
                     ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
                     ### If absolute path, store the relative path in $1
                     if [ ! -f "$(realpath "$1")" ]; then 
-                        echo "Invalid/Unnecesary argument passed - $1";
+                        echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}";
                         shift; continue;
                     fi
                     relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
@@ -57,19 +57,20 @@ function combine(){
                     shift;
                 done
                 continue ;;
-            -*) echo "Invalid flag passed - $1"; shift; continue ;;
+            -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
             *)
                 if [[ $starting_args == true ]]; then
                     while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
-                        if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]]; then 
-                            echo "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                        if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
+                            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                         fi
                         only_flag=true
                         relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
+                        relative_path=$(sed 's/,/\x1A/g;' <<< "$relative_path") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
                         if [[ "$only_quizzes" == "" ]]; then 
-                            quizzes+="${relative_path%\.*}"
+                            only_quizzes+="${relative_path%\.*}"
                         else
-                            quizzes+=",${relative_path%\.*}"
+                            only_quizzes+=",${relative_path%\.*}"
                         fi
                         shift;
                     done
@@ -80,7 +81,7 @@ function combine(){
                         shift;
                     fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
                 else
-                    echo "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                 fi ;;
         esac
     done
@@ -162,8 +163,21 @@ function combine(){
         fi
     fi
     if [[ $only_flag == true ]]; then
+        ### If this file is already in main.csv, we don't want to add it again
         while read -r -d ',' file; do
-        done <<< "$quizzes"
+            if [[ "$file" == "" ]]; then
+                continue
+            fi
+            if echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "Quiz $file already exists in the main.csv file. Skipping..."
+                continue
+            elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "$file is in the drop list. Skipping..."
+                continue
+            fi
+            quizzes+=("$file")
+            line+="$file,"
+        done <<< "$only_quizzes,"
     else
         ### Notes: Here, line changes to become the value of the first line in main, quizzes also changes
         while IFS= read -r -d '' file; do
@@ -181,7 +195,7 @@ function combine(){
             fi
             quizzes+=("$file")
             line+="$file,"
-        done < <(find "$WORKING_DIRECTORY" -name "*.csv" -print0)
+        done < <(find "$WORKING_DIRECTORY" -name "*.csv" -print0) # null-terminated instead of newline-terminated, makes sure the last file is also processed correctly
     fi
     num_quizzes=$((${#quizzes[@]}+${#old_quizzes[@]}))
     if [[ $num_quizzes -eq 0 ]]; then
@@ -195,92 +209,87 @@ function combine(){
         echo "main.csv may have outdated information for the following quizzes: ${updated_quizzes[@]}. Updating main.csv for the same..."
         drop "${updated_quizzes}"
     fi
-    if [[ 0 != 0 ]]; then
-        echo "HERE"
-    else
-        # This is solely needed so that main.csv exists and has a valid first line when entering the awk command
-        touch "$WORKING_DIRECTORY/main.csv"
-        line=${line%,} # Removing the last comma
-        IFS=$'\x19'
-        if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
-            drop "${drop_quizzes}"
-            echo "No new quizzes to add. Exiting..."
-            exit 0
-        fi
-        # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
-        ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
-        awk -v QUIZZES="${quizzes[*]}" -v output=$line '
-            BEGIN {
-                FS=","    
-                OFS=","
-                split(QUIZZES, ARRAY, "\x19")
-                file_num=0
-                print output
-                for (i = 1; i <= length(output); i++) {
-                    if (substr(output, i, 1) == ",") {
-                        number_of_quizzes++;
-                    }
+    touch "$WORKING_DIRECTORY/main.csv"
+    line=${line%,} # Removing the last comma
+    IFS=$'\x19'
+    if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
+        drop "${drop_quizzes}"
+        echo "No new quizzes to add. Exiting..."
+        exit 0
+    fi
+    # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
+    ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
+    awk -v QUIZZES="${quizzes[*]}" -v output=$line '
+        BEGIN {
+            FS=","    
+            OFS=","
+            split(QUIZZES, ARRAY, "\x19")
+            file_num=0
+            print output
+            for (i = 1; i <= length(output); i++) {
+                if (substr(output, i, 1) == ",") {
+                    number_of_quizzes++;
                 }
-                number_of_quizzes-=length(ARRAY)+1;
             }
-            /^\s*$/ {
-                next
-            }
-            /^Roll_Number/ {
-                file_num++
-                next
-            }
-            ! (file_num in ARRAY) {
-                if ($1 "~" $2 in results) {
-                    for (i in ARRAY){
-                        if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
-                            captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
-                            $(i+number_of_quizzes+2) = captured_group
-                        }
-                        else {
-                            $(i+number_of_quizzes+2) = "a"
-                        }
+            number_of_quizzes-=length(ARRAY)+1;
+        }
+        /^\s*$/ {
+            next
+        }
+        /^Roll_Number/ {
+            file_num++
+            next
+        }
+        ! (file_num in ARRAY) {
+            if ($1 "~" $2 in results) {
+                for (i in ARRAY){
+                    if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
+                        captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                        $(i+number_of_quizzes+2) = captured_group
                     }
-                    print
-                    delete results[$1 "~" $2]
-                }
-                else {
-                    for (i = 1; i <= length(ARRAY); i++){
+                    else {
                         $(i+number_of_quizzes+2) = "a"
                     }
                 }
-                next
+                print
+                delete results[$1 "~" $2]
             }
-            {
-                if ($1 "~" $2 in results) {
-                    results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
-                } else {
-                    results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+            else {
+                for (i = 1; i <= length(ARRAY); i++){
+                    $(i+number_of_quizzes+2) = "a"
                 }
             }
-            END {
-                for (result in results){
-                    split(result, output_list, "~")
-                    output = output_list[1] "," output_list[2]
-                    for (i = 0; i < number_of_quizzes; i++){
+            next
+        }
+        {
+            if ($1 "~" $2 in results) {
+                results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+            } else {
+                results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+            }
+        }
+        END {
+            for (result in results){
+                split(result, output_list, "~")
+                output = output_list[1] "," output_list[2]
+                for (i = 0; i < number_of_quizzes; i++){
+                    output = output ",a"
+                }
+                for (i in ARRAY){
+                    if (match(results[result], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
+                        captured_group = substr(results[result], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                        output =  output "," captured_group
+                    }
+                    else {
                         output = output ",a"
                     }
-                    for (i in ARRAY){
-                        if (match(results[result], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
-                            captured_group = substr(results[result], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
-                            output =  output "," captured_group
-                        }
-                        else {
-                            output = output ",a"
-                        }
-                    }
-                    print output
                 }
+                print output
             }
-        ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
-        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
-        # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
-    fi
+        }
+    ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
+    # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
     if [[ $drop_flag == true ]]; then
         drop "${drop_quizzes}"
     fi
@@ -317,7 +326,82 @@ function drop(){
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
 }
 
+function check_data_valid(){
+    awk '
+        BEGIN {
+            FS=","
+        }
+        /^\s*$/ {
+            next
+        }
+        NR == 1 {
+            if (!($0 ~ /^Roll_Number,Name,Marks$/)) {print "File headers not as expected. Check the file for errors."; exit 1;}
+        }
+        NR > 1 { 
+            if (NF != 3) {print "Line", NR, "seems to be missing data."; exit 1;}
+            if (!($3 ~ /^a$/) && !($3 ~ /[+-]?[0-9]+(\.[0-9]+)?/)) {print "Line", NR, "seems to have an invalid value in the marks column."; exit 1;}
+        }
+    ' "$1" ### Here, I am checking the entire file instead of first 6 rows because the source may not be trustworthy
+}
+
+function upload(){
+    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    declare -a args;
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -*) 
+                break ;;
+            *)
+                if [ ! -f "$1" ] || [[ ! "$1" =~ \.csv ]]; then 
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}";
+                    shift; continue;
+                elif [[ "$(basename "$1")" == "main.csv" ]]; then
+                    echo -e "${NON_FATAL_ERROR}${BOLD}File $1 is named main.csv. Rename the file and try again. The program will continue to execute.${NORMAL}";
+                    shift; continue;
+                elif [ -f "$WORKING_DIRECTORY/$(basename "$1")" ]; then
+                    echo -e "${ERROR}${BOLD}A file with the same name as $1 already exists in the current directory. Do you want to overwrite [y/n]: ${NORMAL}";
+                    read -t 10 -n 1 overwrite
+                    if [[ "$overwrite" == "y" ]]; then
+                        check_data_valid "$1"
+                        if [[ $? -ne 0 ]]; then
+                            echo "Invalid data in $1. Skipping..."
+                            shift; continue;
+                        fi
+                        cp "$1" "$WORKING_DIRECTORY"
+                        args+=("$(basename "$1")")
+                        shift; continue
+                    elif [[ "$overwrite" == "" ]]; then
+                        echo "You have timed out. Skipping..."
+                    fi
+                    shift; continue; 
+                fi
+                check_data_valid "$1"
+                if [[ $? -ne 0 ]]; then
+                    echo "Invalid data in $1. Skipping..."
+                    shift; continue;
+                fi
+                cp "$1" "$WORKING_DIRECTORY"
+                args+=("$(basename "$1")")
+                shift 
+                continue ;;
+        esac
+    done
+    if [[ ${#args[@]} -eq 0 ]]; then
+        echo -e "${ERROR}${BOLD}No valid files found to upload.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
+        exit 1
+    fi
+    combine "${args[@]}" "$@"
+    echo "Files uploaded successfully."
+}
+
 function main() {
+    # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
+    # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
     if [[ "$0" =~ ^/ || "$0" =~ ^~ ]]; then
         WORKING_DIRECTORY=${0%/*}
     elif [[ "$0" =~ ^\./ ]]; then
@@ -339,28 +423,15 @@ function main() {
         let index++;
     done
     if [[ $1 == 'combine' ]]; then
+        shift; # This is done to remove the first argument, which is combine
         combine "$@"
+    elif [[ $1 == 'upload' ]]; then
+        shift; # This is done to remove the first argument, which is upload
+        upload "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
     fi
-}
-
-function upload(){
-    if [[ "$1" == "" ]]; then
-        echo -e "${ERROR}${BOLD}No file name provided. Please provide a file name to upload.${NORMAL}"
-        echo -e "${BOLD}Usage.."
-        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
-        exit 1
-    fi
-    if [[ ! -f "$1" ]]; then
-        echo -e "${ERROR}${BOLD}File $1 not found. Please provide a valid file name to upload.${NORMAL}"
-        echo -e "${BOLD}Usage.."
-        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
-        exit 1
-    fi
-    cp "$1" "$WORKING_DIRECTORY"
-    echo "File $1 uploaded successfully."
 }
 
 main "$@"
