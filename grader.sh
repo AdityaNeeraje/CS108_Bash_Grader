@@ -8,6 +8,7 @@ INFO='\033[0;32m'
 
 dont_combine_flag=false
 force_flag=false
+drop_flag=false
 WORKING_DIRECTORY=$PWD
 
 while getopts 'abf:v' flag; do
@@ -17,11 +18,36 @@ while getopts 'abf:v' flag; do
 done
 
 function combine(){
+    VALID_ARGS=$(getopt -o fd: --long force,drop: -- "$@")
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    eval set -- "$VALID_ARGS"
+    while [ : ]; do
+        case "$1" in 
+            -f|--force) 
+                force_flag=true; shift ;;
+            -d|--drop)
+                drop_flag=true;
+                declare -a drop_quizzes;
+                shift;
+                while [[ ! "$1" =~ ^- && ! "$1" == "help" ]]; do
+                    drop_quizzes+=("$1")
+                    shift;
+                done
+                shift ;;
+            --) shift; break ;;
+        esac
+    done
     if [[ "$2" =~ ^help$ ]]; then
         echo -e "${INFO}Usage..${NORMAL}"
         echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
         echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
         exit 0
+    fi
+    if [[ $force_flag == true ]]; then
+        echo "" > "$WORKING_DIRECTORY/main.csv"
+        force_flag=false
     fi
     total_present_flag='false'
     # The -f flag forces new combine, help 
