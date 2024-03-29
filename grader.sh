@@ -18,25 +18,33 @@ while getopts 'abf:v' flag; do
 done
 
 function combine(){
-    VALID_ARGS=$(getopt -o fd: --long force,drop: -- "$@")
+    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
-    eval set -- "$VALID_ARGS"
-    while [ : ]; do
+    shift; # This is to remove the --combine flag from the arguments
+    while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
                 force_flag=true; shift ;;
             -d|--drop)
                 drop_flag=true;
-                declare -a drop_quizzes;
+                drop_quizzes="";
                 shift;
-                while [[ ! "$1" =~ ^- && ! "$1" == "help" ]]; do
-                    drop_quizzes+=("$1")
+                while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                    if [ ! -f "$WORKING_DIRECTORY/$1" ]; then 
+                        shift; continue;
+                    fi
+                    if [[ "$drop_quizzes" == "" ]]; then 
+                        drop_quizzes+="${1%\.*}"
+                    else
+                        drop_quizzes+=",${1%\.*}"
+                    fi
                     shift;
-                done
-                shift ;;
-            --) shift; break ;;
+                done 
+                ;;
+            -*) echo "Invalid flag passed - $1"; shift; break ;;
+            *) echo "Invalid/Unnecesary argument passed - $1"; shift; break ;;
         esac
     done
     if [[ "$2" =~ ^help$ ]]; then
@@ -45,9 +53,17 @@ function combine(){
         echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
         exit 0
     fi
+    # If force_flag is true, then we don't want to consider what is currently in main.csv. We can empty it, it will be rewritten by later code.
     if [[ $force_flag == true ]]; then
         echo "" > "$WORKING_DIRECTORY/main.csv"
         force_flag=false
+    fi
+    # There is the possibility that none of the quizzes the user mentioned were ever in the local directory. In that case, we don't want drop_flag to be true
+    if [[ $drop_quizzes == "" ]]; then
+        if [[ $drop_flag == true ]]; then
+            echo -e "${ERROR}No quizzes found in the current directory to drop. This program will still continue, since this is a non-fatal error. But you can check your arguments and rerun your command.${NORMAL}"
+        fi
+        drop_flag=false
     fi
     total_present_flag='false'
     # The -f flag forces new combine, help 
@@ -65,12 +81,18 @@ function combine(){
             NR == 1 {
                 if (!($0 ~ /^Roll_Number,Name,/)) {exit 1;}
                 num_quizzes = NF-2
+                next
             }
             NR > 1 { 
                 if (NF != num_quizzes + 2) {exit 1;}
                 for (i = 1; i <= num_quizzes; i++){
                     if (!($(2+i) ~ /^a$/) && !($(2+i) ~ /[+-]?[0-9]+(\.[0-9]+)?/)) {exit 1;}
                 }
+            }
+            NR == 6 {
+                exit 0 ### Most cases of incorrect data 
+                ### are likely to be due to extra print statements in the awk code or python code, which will affect at least one of the first few lines of main.csv,
+                ### so I think it is valid to stop checking if the first few lines of data are valid
             }
         ' "$WORKING_DIRECTORY/main.csv"
         if [ $? -eq 1 ]; then
@@ -95,8 +117,11 @@ function combine(){
         file=$(sed 's/\x1A/,/g;' <<< "$file") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
         if [[ "$file" =~ main ]]; then
             continue
-        elif echo "$line" | grep -Eq ",$file[,\$]"; then
+        elif echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
             echo "Quiz $file already exists in the main.csv file. Skipping..."
+            continue
+        elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
+            echo "$file is in the drop list. Skipping..."
             continue
         fi
         quizzes+=("$file")
@@ -122,7 +147,7 @@ function combine(){
             echo "No new quizzes to add. Exiting..."
             exit 0
         fi
-        ### TODO.. Implement total functionality, and updating the main.csv file
+        for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv"
         # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
         ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
         awk -v QUIZZES="${quizzes[*]}" -v output=$line '
@@ -132,20 +157,24 @@ function combine(){
                 split(QUIZZES, ARRAY, "\x19")
                 file_num=0
                 print output
-                ### TODO Implement the output for the main.csv file
+                for (i = 1; i <= length(output); i++) {
+                    if (substr(output, i, 1) == ",") {
+                        number_of_quizzes++;
+                    }
+                }
+                number_of_quizzes-=length(ARRAY)+1;
             }
             /^\s*$/ {
                 next
             }
             /^Roll_Number/ {
                 file_num++
-                number_of_quizzes=NF-2-length(ARRAY)
                 next
             }
             ! (file_num in ARRAY) {
                 if ($1 "~" $2 in results) {
                     for (i in ARRAY){
-                        if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
+                        if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
                             captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
                             $(i+number_of_quizzes+2) = captured_group
                         }
@@ -189,7 +218,8 @@ function combine(){
                     print output
                 }
             }
-        ' < <(for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done) > "$WORKING_DIRECTORY/main.csv"
+        ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/temp.txt"
+        mv "$WORKING_DIRECTORY/temp.txt" "$WORKING_DIRECTORY/main.csv"
         # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
     fi
 }
