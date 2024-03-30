@@ -452,6 +452,88 @@ function levenshtein() {
     return
 }
 
+function query() {
+    getopt -o "n: --long number:" -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    declare -a args
+    starting_args=true
+    number="3" # 3 seemed optimal after a bit of experimentation (also, there are 3 Adityas in the freshie batch, and this prints out our names when our name is misspelt and queried)
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -n)
+                starting_args=false
+                if [[ ${#args[@]} -eq 0 ]]; then
+                    echo -e "${INFO}${BOLD}number flag has been passed before any valid student queries have been supplied.\nStudent names should be passed before the number flag. (use help for more info)${NORMAL}"
+                fi
+                shift
+                if [[ "$1" =~ ^[0-9]+$ ]]; then
+                    number="$1"
+                    shift
+                    continue
+                elif [[ "$1" != "help" ]]; then                    
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed to round flag. Ignoring...${NORMAL}"
+                    shift
+                    continue
+                fi
+                # If the value of "$1" is help, then help is called, if not, the non_fatal_error message is printed and the argument is ignored
+                ;;
+            help) # If help is passed as an argument, all other arguments will be ignored, because exit is called immediately after help
+                echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                echo -e "${INFO}${BOLD}bash grader.sh query [QUERIES] [OPTIONS]${NORMAL}"
+                echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                echo -e "${INFO}${BOLD}-n, --number${NORMAL} Specify the number of search results to grep for. Default is 3."
+                echo -e "Keep in mind that since names in main.csv may not be unique, more than n lines can be returned in the answer."
+                echo -e "${INFO}${BOLD}Example: bash grader.sh query \"John Doe\" -n 3${NORMAL}"
+                exit 0 ;;
+            *) 
+                if [[ $starting_args == true ]]; then
+                    args+=("$1")
+                    shift
+                    continue
+                fi
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed - $1. Ignoring...${NORMAL}"
+                shift
+                continue ;;
+        esac
+    done
+    if [[ ${#args[@]} -eq 0 ]]; then
+        echo -e "${ERROR}${BOLD}No valid student names or roll numbers found.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh percentile [STUDENT_NAMES] [OPTIONS]${NORMAL}"
+        exit 1
+    fi
+    readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    for name in "${args[@]}"; do 
+        marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
+        declare -a differences=();
+        if [[ "$marks" == "" ]]; then
+            index=2
+            for present_name in "${names[@]}" "${roll_numbers[@]}"; do
+                distance=$(levenshtein "$name" "$present_name")
+                differences+=("$index,$distance")
+                let index++
+            done
+            readarray -t lines < <(for distance in "${differences[@]}"; do echo "$distance"; done | sort -r -t ',' -k2,2n | head -n $number | cut -d ',' -f 1)
+            if [[ ${#lines[@]} -eq 0 ]]; then
+                echo -e "${NON_FATAL_ERROR}${BOLD}No data found matching the query $name in main.csv. Skipping...${NORMAL}"
+                continue
+            fi
+            for line in "${lines[@]}"; do
+                if [[ $((line-1)) -gt ${#names[@]} ]]; then
+                    let line-=${#names[@]}
+                fi
+                sed -n "$line{p;q}" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*),([^,]*),(.*)$/\1,\2/'
+            done
+        else
+            echo "An exact match was found for $name in main.csv."
+            grep -i "$name" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*),([^,]*),(.*)$/\1,\2/'
+        fi
+    done
+}
+
 function percentile() {
     # The objective of this function is to print out the percentile of the student in all of the quizzes in main.csv. It assumes the data in main.csv is valid
     # I am implementing 3 tries, with the roll numbers, names and last digits of the roll numbers
@@ -624,6 +706,9 @@ function main() {
     elif [[ "$1" == "percentile" ]]; then
         shift;
         percentile "$@"
+    elif [[ "$1" == "query" ]]; then
+        shift;
+        query "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
