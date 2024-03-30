@@ -393,6 +393,65 @@ function upload(){
     echo "Files uploaded successfully."
 }
 
+function levenshtein() {
+    ### Algorithm translated to bash from C++ algorithm found at https://www.geeksforgeeks.org/introduction-to-levenshtein-distance/
+    name1="${1,,}"
+    name2="${2,,}"
+    if [[ ${#name1} -eq 0 ]]; then
+        echo ${#name2}
+        return
+    fi
+    if [[ ${#name2} -eq 0 ]]; then
+        echo ${#name1}
+        return
+    fi
+    words_in_name_1=(${name1// / }) # The usage of this function should be such that name1 is the query by the user and name2 is the existing name
+    words_in_name_2=(${name2// / })
+    if [[ ${#words_in_name_1[@]} -ne 1 || ${#words_in_name_2[@]} -ne 1 ]]; then
+        minimum=0
+        for word1 in "${words_in_name_1[@]}"; do
+            current_minimum=100000
+            for word2 in "${words_in_name_2[@]}"; do
+                distance=$(levenshtein "$word1" "$word2")
+                if [[ $distance -lt $current_minimum ]]; then
+                    current_minimum=$distance
+                fi
+            done
+            let minimum+=$current_minimum
+        done
+        echo $minimum
+        return
+    fi
+    m=$((${#name1}+1))
+    n=$((${#name2}+1))
+    declare -a prevRow=();
+    declare -a currRow=();
+    for ((i=0; i < n; i++)); do
+        prevRow+=($i)
+        currRow+=(0)
+    done
+    for ((i=1; i < m; i++)); do
+        currRow[0]=$i
+        for ((j=1; j < n; j++)); do
+            if [[ ${name1:$((i - 1)):1} == ${name2:$((j - 1)):1} ]]; then
+                currRow[$j]=${prevRow[$((j - 1))]}
+            else
+                minimum=${currRow[$((j - 1))]}; # Insertion
+                if [[ $minimum -gt ${prevRow[$j]} ]]; then # Removal
+                    minimum=${prevRow[$j]}
+                fi
+                if [[ $minimum -gt ${prevRow[$((j - 1))]} ]]; then # Replacement
+                    minimum=${prevRow[$((j - 1))]}
+                fi
+                currRow[$j]=$(($minimum+1))
+            fi
+        done
+        prevRow=("${currRow[@]}")
+    done
+    echo ${currRow[$((n-1))]}
+    return
+}
+
 function percentile() {
     # The objective of this function is to print out the percentile of the student in all of the quizzes in main.csv. It assumes the data in main.csv is valid
     # I am implementing 3 tries, with the roll numbers, names and last digits of the roll numbers
@@ -449,19 +508,36 @@ function percentile() {
         echo -e "${INFO}${BOLD}bash grader.sh percentile [STUDENT_NAMES] [OPTIONS]${NORMAL}"
         exit 1
     fi
-    for name in "${args[@]}"; do
-        if [[ "$name" == "" ]]; then
-            echo "Please enter a valid student name or roll number: "
-            read -t 10 student
-            if [[ "$student" == "" ]]; then
-                echo "You have timed out. Exiting..."
-                exit 1
-            fi
-        fi
+    readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    for name in "${args[@]}"; do 
+        # if [[ "$name" == "" ]]; then # This part is not necessary now that I am using args
+        #     echo "Please enter a valid student name or roll number: "
+        #     read -t 10 student
+        #     if [[ "$student" == "" ]]; then
+        #         echo "You have timed out. Exiting..."
+        #         exit 1
+        #     fi
+        # fi
         marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
         if [[ "$marks" == "" ]]; then
-            echo -e "${NON_FATAL_ERROR}${BOLD}Something went wrong. No data found matching the query $name in main.csv. Skipping...${NORMAL}"
-            continue
+            # Some common mistakes could be swapping the order of the names, especially for Telugu people
+            # 
+            min_distance=100000
+            closest=""
+            for present_name in "${names[@]}" "${roll_numbers[@]}"; do
+                distance=$(levenshtein "$name" "$present_name")
+                if [[ $distance -lt $min_distance ]]; then
+                    min_distance=$distance
+                    closest="$present_name"
+                fi
+            done
+            name="$closest"
+            marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
+            if [[ "$marks" == "" ]]; then
+                echo -e "${NON_FATAL_ERROR}${BOLD}Something went wrong. No data found matching the query $name in main.csv. Skipping...${NORMAL}"
+                continue
+            fi
         fi
         marks=${marks#*,} # Removing roll number
         name=${marks%%,*} # Extracting name
