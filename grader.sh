@@ -403,12 +403,16 @@ function percentile() {
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
-    name="$1"
+    declare -a args
+    starting_args=true
     round="2" # Default round is 2
-    shift
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -r)
+                starting_args=false
+                if [[ ${#args[@]} -eq 0 ]]; then
+                    echo -e "${INFO}${BOLD}round flag has been passed before any valid student queries have been supplied.\nStudent names should be passed before the round flag. (use help for more info)${NORMAL}"
+                fi
                 shift
                 if [[ "$1" =~ ^[0-9]+$ ]]; then
                     round="$1"
@@ -429,73 +433,87 @@ function percentile() {
                 echo -e "${INFO}${BOLD}Example: bash grader.sh percentile \"John Doe\" -r 2${NORMAL}"
                 exit 0 ;;
             *) 
+                if [[ $starting_args == true ]]; then
+                    args+=("$1")
+                    shift
+                    continue
+                fi
                 echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed - $1. Ignoring...${NORMAL}"
                 shift
                 continue ;;
         esac
     done
-    if [[ "$name" == "" ]]; then
-        echo "Please enter a valid student name or roll number: "
-        read -t 10 student
-        if [[ "$student" == "" ]]; then
-            echo "You have timed out. Exiting..."
+    if [[ ${#args[@]} -eq 0 ]]; then
+        echo -e "${ERROR}${BOLD}No valid student names or roll numbers found.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh percentile [STUDENT_NAMES] [OPTIONS]${NORMAL}"
+        exit 1
+    fi
+    for name in "${args[@]}"; do
+        if [[ "$name" == "" ]]; then
+            echo "Please enter a valid student name or roll number: "
+            read -t 10 student
+            if [[ "$student" == "" ]]; then
+                echo "You have timed out. Exiting..."
+                exit 1
+            fi
+        fi
+        marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
+        if [[ "$marks" == "" ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}Something went wrong. No data found matching the query $name in main.csv. Skipping...${NORMAL}"
+            continue
+        fi
+        marks=${marks#*,} # Removing roll number
+        name=${marks%%,*} # Extracting name
+        marks=${marks#*,} # Removing name
+        marks+="," # Addign a trailing comma so that the last mark is also read
+        declare -a marks_array=();
+        while read -d ',' mark; do
+            marks_array+=("$mark")
+        done <<< "$marks"
+        if [[ "${#marks_array[@]}" -eq 0 ]]; then
+            echo "No marks found for the student. Exiting..."
             exit 1
         fi
-    fi
-    marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
-    if [[ "$marks" == "" ]]; then
-        echo "Something went wrong. No data found for that student in main.csv. Exiting..."
-        exit 1
-    fi
-    marks=${marks#*,} # Removing roll number
-    name=${marks%%,*} # Extracting name
-    marks=${marks#*,} # Removing name
-    marks+="," # Addign a trailing comma so that the last mark is also read
-    declare -a marks_array;
-    while read -d ',' mark; do
-        marks_array+=("$mark")
-    done <<< "$marks"
-    if [[ "${#marks_array[@]}" -eq 0 ]]; then
-        echo "No marks found for the student. Exiting..."
-        exit 1
-    fi
-    IFS=$'\x19'
-    awk -v MARKS="${marks_array[*]}" -v NAME="$name" -v ROUND="$round" '
-        BEGIN {
-            FS=","
-            split(MARKS, ARRAY, "\x19")
-            num_quizzes=length(ARRAY)
-            OFMT = "%." ROUND "f" # Rounding off output to 2 decimal places
-        }
-        NR == 1 {
-            for (i in ARRAY){
-                if (!(ARRAY[i] ~ /^a$/)) {
-                    quizzes[i+2]=$(i+2)
+        IFS=$'\x19'
+        awk -v MARKS="${marks_array[*]}" -v NAME="$name" -v ROUND="$round" '
+            BEGIN {
+                FS=","
+                split(MARKS, ARRAY, "\x19")
+                num_quizzes=length(ARRAY)
+                OFMT = "%." ROUND "f" # Rounding off output to 2 decimal places
+            }
+            NR == 1 {
+                for (i in ARRAY){
+                    if (!(ARRAY[i] ~ /^a$/)) {
+                        quizzes[i+2]=$(i+2)
+                    }
+                } # quizzes has all the indices which are valid
+                if (length(quizzes) == 0) {
+                    print "No marks found for the student. Exiting..."
+                    exit 1
                 }
-            } # quizzes has all the indices which are valid
-            if (length(quizzes) == 0) {
-                print "No marks found for the student. Exiting..."
-                exit 1
+                # If at least one set of marks has been found, go ahead with printing the analysis
+                print "Performance analysis of", NAME, "in quizzes"
+                print "====================================================="
             }
-            # If at least one set of marks has been found, go ahead with printing the analysis
-            print "Performance analysis of", NAME, "in quizzes"
-            print "====================================================="
-        }
-        NR > 1 {
-            for (i in quizzes){
-                if ($i ~ /^a$/) {
-                    continue
+            NR > 1 {
+                for (i in quizzes){
+                    if ($i ~ /^a$/) {
+                        continue
+                    }
+                    if (ARRAY[i-2] > $i) {GREATER[i]++}
+                    TOTAL[i]++
                 }
-                if (ARRAY[i-2] > $i) {GREATER[i]++}
-                TOTAL[i]++
             }
-        }
-        END {
-            for (i in quizzes){
-                print "Quiz", quizzes[i], "Percentile:", GREATER[i]/TOTAL[i]*100
+            END {
+                for (i in quizzes){
+                    print "Quiz", quizzes[i], "Percentile:", GREATER[i]/TOTAL[i]*100
+                }
+                print "====================================================="
             }
-        }
-    ' "$WORKING_DIRECTORY/main.csv"
+        ' "$WORKING_DIRECTORY/main.csv"
+    done
 }
 
 function main() {
