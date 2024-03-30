@@ -14,14 +14,8 @@ WORKING_DIRECTORY=$PWD
 TEMPORARY_FILES=(".temp.txt","temp.txt","temp.ext","temp")
 TEMPORARY_FILE=${TEMPORARY_FILES[0]}
 
-while getopts 'abf:v' flag; do
-    case "$flag" in
-        a) dont_combine_flag='true' ;;
-    esac
-done
-
 function combine(){
-    ### TODO -> If a file is deleted, remove it from main.csv
+    ### TODO -> Test to ensure comma-separated quiz names are properly handled
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
@@ -211,7 +205,6 @@ function combine(){
     fi
     touch "$WORKING_DIRECTORY/main.csv"
     line=${line%,} # Removing the last comma
-    IFS=$'\x19'
     if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
         drop "${drop_quizzes}"
         echo "No new quizzes to add. Exiting..."
@@ -219,6 +212,7 @@ function combine(){
     fi
     # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
     ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
+    IFS=$'\x19'
     awk -v QUIZZES="${quizzes[*]}" -v output=$line '
         BEGIN {
             FS=","    
@@ -399,6 +393,111 @@ function upload(){
     echo "Files uploaded successfully."
 }
 
+function percentile() {
+    # The objective of this function is to print out the percentile of the student in all of the quizzes in main.csv. It assumes the data in main.csv is valid
+    # I am implementing 3 tries, with the roll numbers, names and last digits of the roll numbers
+    ### TODO implement this
+    # Two flags, one assuming the input is valid, the other assuming the input can be erroneous and needs to be spell-checked
+    ### Notes: Initially, let me implement the function assuming the input is valid, then I can modify it.
+    getopt -o "r: --long round:" -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    name="$1"
+    round="2" # Default round is 2
+    shift
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -r)
+                shift
+                if [[ "$1" =~ ^[0-9]+$ ]]; then
+                    round="$1"
+                    shift
+                    continue
+                elif [[ "$1" != "help" ]]; then                    
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed to round flag. Ignoring...${NORMAL}"
+                    shift
+                    continue
+                fi
+                # If the value of "$1" is help, then help is called, if not, the non_fatal_error message is printed and the argument is ignored
+                ;;
+            help) # If help is passed as an argument, all other arguments will be ignored, because exit is called immediately after help
+                echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                echo -e "${INFO}${BOLD}bash grader.sh percentile [STUDENT_NAME] [OPTIONS]${NORMAL}"
+                echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                echo -e "${INFO}${BOLD}-r, --round${NORMAL} Specify the number of decimal places to round off the output to. Default is 2."
+                echo -e "${INFO}${BOLD}Example: bash grader.sh percentile \"John Doe\" -r 2${NORMAL}"
+                exit 0 ;;
+            *) 
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed - $1. Ignoring...${NORMAL}"
+                shift
+                continue ;;
+        esac
+    done
+    if [[ "$name" == "" ]]; then
+        echo "Please enter a valid student name or roll number: "
+        read -t 10 student
+        if [[ "$student" == "" ]]; then
+            echo "You have timed out. Exiting..."
+            exit 1
+        fi
+    fi
+    marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
+    if [[ "$marks" == "" ]]; then
+        echo "Something went wrong. No data found for that student in main.csv. Exiting..."
+        exit 1
+    fi
+    marks=${marks#*,} # Removing roll number
+    name=${marks%%,*} # Extracting name
+    marks=${marks#*,} # Removing name
+    marks+="," # Addign a trailing comma so that the last mark is also read
+    declare -a marks_array;
+    while read -d ',' mark; do
+        marks_array+=("$mark")
+    done <<< "$marks"
+    if [[ "${#marks_array[@]}" -eq 0 ]]; then
+        echo "No marks found for the student. Exiting..."
+        exit 1
+    fi
+    IFS=$'\x19'
+    awk -v MARKS="${marks_array[*]}" -v NAME="$name" -v ROUND="$round" '
+        BEGIN {
+            FS=","
+            split(MARKS, ARRAY, "\x19")
+            num_quizzes=length(ARRAY)
+            OFMT = "%." ROUND "f" # Rounding off output to 2 decimal places
+        }
+        NR == 1 {
+            for (i in ARRAY){
+                if (!(ARRAY[i] ~ /^a$/)) {
+                    quizzes[i+2]=$(i+2)
+                }
+            } # quizzes has all the indices which are valid
+            if (length(quizzes) == 0) {
+                print "No marks found for the student. Exiting..."
+                exit 1
+            }
+            # If at least one set of marks has been found, go ahead with printing the analysis
+            print "Performance analysis of", NAME, "in quizzes"
+            print "====================================================="
+        }
+        NR > 1 {
+            for (i in quizzes){
+                if ($i ~ /^a$/) {
+                    continue
+                }
+                if (ARRAY[i-2] > $i) {GREATER[i]++}
+                TOTAL[i]++
+            }
+        }
+        END {
+            for (i in quizzes){
+                print "Quiz", quizzes[i], "Percentile:", GREATER[i]/TOTAL[i]*100
+            }
+        }
+    ' "$WORKING_DIRECTORY/main.csv"
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -422,12 +521,15 @@ function main() {
         TEMPORARY_FILE=${TEMPORARY_FILES[$index]}
         let index++;
     done
-    if [[ $1 == 'combine' ]]; then
+    if [[ "$1" == "combine" ]]; then
         shift; # This is done to remove the first argument, which is combine
         combine "$@"
-    elif [[ $1 == 'upload' ]]; then
+    elif [[ "$1" == "upload" ]]; then
         shift; # This is done to remove the first argument, which is upload
         upload "$@"
+    elif [[ "$1" == "percentile" ]]; then
+        shift;
+        percentile "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
