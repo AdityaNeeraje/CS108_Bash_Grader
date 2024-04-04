@@ -13,6 +13,7 @@ drop_flag=false
 WORKING_DIRECTORY=$PWD
 TEMPORARY_FILES=(".temp.txt","temp.txt","temp.ext","temp")
 TEMPORARY_FILE=${TEMPORARY_FILES[0]}
+APPROXIMATION_DISTANCE=5
 
 function combine(){
     ### TODO -> Test to ensure comma-separated quiz names are properly handled
@@ -446,6 +447,10 @@ function levenshtein() {
                 currRow[$j]=$(($minimum+1))
             fi
         done
+        if [[ $minimum -gt $((APPROXIMATION_DISTANCE+1)) ]]; then
+            echo $minimum
+            return
+        fi
         prevRow=("${currRow[@]}")
     done
     echo ${currRow[$((n-1))]}
@@ -593,14 +598,6 @@ function percentile() {
     readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
     readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
     for name in "${args[@]}"; do 
-        # if [[ "$name" == "" ]]; then # This part is not necessary now that I am using args
-        #     echo "Please enter a valid student name or roll number: "
-        #     read -t 10 student
-        #     if [[ "$student" == "" ]]; then
-        #         echo "You have timed out. Exiting..."
-        #         exit 1
-        #     fi
-        # fi
         marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
         if [[ "$marks" == "" ]]; then
             # Some common mistakes could be swapping the order of the names, especially for Telugu people
@@ -614,6 +611,10 @@ function percentile() {
                     closest="$present_name"
                 fi
             done
+            if [[ $min_distance -gt $APPROXIMATION_DISTANCE ]]; then
+                echo -e "${NON_FATAL_ERROR}${BOLD}No data found matching the query $name in main.csv. Skipping...${NORMAL}"
+                continue
+            fi
             name="$closest"
             marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
             if [[ "$marks" == "" ]]; then
@@ -674,6 +675,90 @@ function percentile() {
     done
 }
 
+function analyze() {
+    getopt -o "r: --long round:" -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    declare -a args
+    starting_args=true
+    round="2" # Default round is 2
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -r)
+                starting_args=false
+                if [[ ${#args[@]} -eq 0 ]]; then
+                    echo -e "${INFO}${BOLD}round flag has been passed before any valid student queries have been supplied.\nStudent names should be passed before the round flag. (use help for more info)${NORMAL}"
+                fi
+                shift
+                if [[ "$1" =~ ^[0-9]+$ ]]; then
+                    round="$1"
+                    shift
+                    continue
+                elif [[ "$1" != "help" ]]; then                    
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed to round flag. Ignoring...${NORMAL}"
+                    shift
+                    continue
+                fi
+                # If the value of "$1" is help, then help is called, if not, the non_fatal_error message is printed and the argument is ignored
+                ;;
+            help) # If help is passed as an argument, all other arguments will be ignored, because exit is called immediately after help
+                echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                echo -e "${INFO}${BOLD}bash grader.sh analyze [STUDENT_NAME] [OPTIONS]${NORMAL}"
+                echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                echo -e "${INFO}${BOLD}-r, --round${NORMAL} Specify the number of decimal places to round off the output to. Default is 2."
+                echo -e "${INFO}${BOLD}Example: bash grader.sh analyze \"John Doe\" -r 2${NORMAL}"
+                exit 0 ;;
+            *) 
+                if [[ $starting_args == true ]]; then
+                    args+=("$1")
+                    shift
+                    continue
+                fi
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed - $1. Ignoring...${NORMAL}"
+                shift
+                continue ;;
+        esac
+    done
+    if [[ ${#args[@]} -eq 0 ]]; then
+        echo -e "${ERROR}${BOLD}No valid student names or roll numbers found.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh analyze [STUDENT_NAMES] [OPTIONS]${NORMAL}"
+        exit 1
+    fi
+    readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    for name in "${args[@]}"; do 
+        readarray -t data < <(percentile "$name" -r "$round")
+        if [[ "${data[0]}" =~ "No data found matching" ]]; then
+            echo "$data"
+            exit
+        fi
+        average=0
+        count=0
+        underformance=false
+        for line in "${data[@]:2:$((${#data[@]}-3))}"; do
+            average=$(echo "scale=$round; $average+$(echo "$line" | awk -F': ' '{print $NF}')" | bc)
+            let count++
+        done
+        average=$(echo "scale=$round; $average/$count" | bc)
+        for line in "${data[@]:2:$((${#data[@]}-3))}"; do
+            line=${line#Quiz }
+            relative_performance=$(echo "scale=$round; $average-$(echo "$line" | awk -F': ' '{print $NF}')" | bc) 
+            if [[ "$(echo "$relative_performance >= 20" | bc)" == "1" ]]; then
+                echo "$name significantly underperformed in $(echo "${line% Percentile:*}"), with his percentile being $relative_performance lower than his average percentile."
+                underformance=true
+            elif [[ "$(echo "$relative_performance >= 10" | bc)" == "1" ]]; then
+                echo "$name somewhat underperformed in $(echo "${line% Percentile:*}"), with his percentile being $relative_performance lower than his average percentile."
+                underformance=true
+            fi
+        done
+        if [[ $underformance == false ]]; then
+            echo "$name performed consistently in all quizzes."
+        fi
+    done
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -709,6 +794,9 @@ function main() {
     elif [[ "$1" == "query" ]]; then
         shift;
         query "$@"
+    elif [[ "$1" == "analyze" ]]; then
+        shift;
+        analyze "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
