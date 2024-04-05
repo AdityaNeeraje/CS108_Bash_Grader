@@ -759,6 +759,67 @@ function analyze() {
     done
 }
 
+function total() {
+    invalid_data=$(echo $(awk '
+        BEGIN {
+            FS=","
+            OFS=","
+            invalid_data=true
+        }
+        NR == 1 {
+            for (i = 3; i <= NF; i++){
+                if ($i ~ /^Total$/) {
+                    invalid_data=false
+                    total_column=i
+                }
+            }
+            if (invalid_data == true) {
+                print "0"
+                exit
+            }
+        }
+        NR > 1 {
+            if (!($total_column ~ /^[0-9]+(\.[0-9]+)?$/)){
+                print "0"
+            }
+        }
+    ' "$WORKING_DIRECTORY/main.csv"))
+    if [[ $invalid_data -eq 1 ]]; then
+        echo "Total column is already present in main.csv. Exiting..."
+        exit 0
+    else
+        echo "Total column is not present in main.csv. Adding the total column..."
+    fi
+    awk '
+        BEGIN {
+            FS=","
+            OFS=","
+        }
+        NR == 1 {
+            ending=2
+            for (i = 3; i <= NF; i++){
+                if (!($i ~ /^Total$/) && !($i ~ /^Mean$/)){
+                    ending=i
+                }
+                else {
+                    break
+                }
+            }
+            print $0, "Total"
+        }
+        NR > 1 {
+            total=0
+            for (i = 3; i <= ending; i++){
+                if ($i ~ /^[0-9]+(\.[0-9]+)?$/){
+                    total+=$i
+                }
+            }
+            print $0, total
+        }
+        ' "$WORKING_DIRECTORY/main.csv" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -797,6 +858,9 @@ function main() {
     elif [[ "$1" == "analyze" ]]; then
         shift;
         analyze "$@"
+    elif [[ "$1" == "total" ]]; then
+        shift;
+        total "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
