@@ -11,7 +11,7 @@ dont_combine_flag=false
 force_flag=false
 drop_flag=false
 WORKING_DIRECTORY=$PWD
-TEMPORARY_FILES=(".temp.txt","temp.txt","temp.ext","temp")
+TEMPORARY_FILES=(".temp.txt" "temp.txt" "temp.ext" "temp")
 TEMPORARY_FILE=${TEMPORARY_FILES[0]}
 APPROXIMATION_DISTANCE=5
 
@@ -121,7 +121,7 @@ function combine(){
             NR > 1 { 
                 if (NF != num_quizzes + 2) {exit 1;}
                 for (i = 1; i <= num_quizzes; i++){
-                    if (!($(2+i) ~ /^a$/) && !($(2+i) ~ /[+-]?[0-9]+(\.[0-9]+)?/)) {exit 1;}
+                    if (!($(2+i) ~ /^[[:space:]]*a[[:space:]]*$/) && !($(2+i) ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/)) {exit 1;}
                 }
             }
             NR == 6 {
@@ -330,11 +330,11 @@ function check_data_valid(){
             next
         }
         NR == 1 {
-            if (!($0 ~ /^Roll_Number,Name,Marks$/)) {print "File headers not as expected. Check the file for errors."; exit 1;}
+            if (!($0 ~ /^Roll_Number,Name,Marks[[:space:]]*$/)) {print "File headers not as expected. Check the file for errors."; exit 1;}
         }
         NR > 1 { 
             if (NF != 3) {print "Line", NR, "seems to be missing data."; exit 1;}
-            if (!($3 ~ /^a$/) && !($3 ~ /[+-]?[0-9]+(\.[0-9]+)?/)) {print "Line", NR, "seems to have an invalid value in the marks column."; exit 1;}
+            if (!($3 ~ /^[[:space:]]*a[[:space:]]*$/) && !($3 ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/)) {print "Line", NR, "seems to have an invalid value in the marks column."; exit 1;}
         }
     ' "$1" ### Here, I am checking the entire file instead of first 6 rows because the source may not be trustworthy
 }
@@ -644,7 +644,7 @@ function percentile() {
             }
             NR == 1 {
                 for (i in ARRAY){
-                    if (!(ARRAY[i] ~ /^a$/)) {
+                    if (!(ARRAY[i] ~ /^[[:space:]]*a[[:space:]]*$/)) {
                         quizzes[i+2]=$(i+2)
                     }
                 } # quizzes has all the indices which are valid
@@ -658,7 +658,7 @@ function percentile() {
             }
             NR > 1 {
                 for (i in quizzes){
-                    if ($i ~ /^a$/) {
+                    if ($i ~ /^[[:space:]]*a[[:space:]]*$/) {
                         continue
                     }
                     if (ARRAY[i-2] > $i) {GREATER[i]++}
@@ -760,31 +760,103 @@ function analyze() {
 }
 
 function total() {
-    invalid_data=$(echo $(awk '
-        BEGIN {
-            FS=","
-            OFS=","
-            invalid_data=true
-        }
-        NR == 1 {
-            for (i = 3; i <= NF; i++){
-                if ($i ~ /^Total$/) {
-                    invalid_data=false
-                    total_column=i
+        ### TODO -> Test to ensure comma-separated quiz names are properly handled
+    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    starting_args=true
+    only_flag=false # If only_flag is set, only a few files are taken as valid input files. All other files are ignored, but not deleted unless --force is specified. Useful when uploading one new column or so
+    declare -a quizzes; # This stores a list of the column names for the main.csv file
+    declare -a only_quizzes;
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -f|--force) 
+                starting_args=false
+                force_flag=true; shift;
+                continue ;;
+            -d|--drop)
+                starting_args=false
+                drop_flag=true;
+                drop_quizzes="";
+                shift;
+                while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                    ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
+                    ### If absolute path, store the relative path in $1
+                    if [ ! -f "$(realpath "$1")" ]; then 
+                        echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}";
+                        shift; continue;
+                    fi
+                    relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
+                    if [[ "$drop_quizzes" == "" ]]; then 
+                        drop_quizzes+="${relative_path%\.*}"
+                    else
+                        drop_quizzes+=",${relative_path%\.*}"
+                    fi
+                    shift;
+                done
+                continue ;;
+            -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
+            *)
+                if [[ $starting_args == true ]]; then
+                    while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                        if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
+                            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                        fi
+                        only_flag=true
+                        relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
+                        relative_path=$(sed 's/,/\x1A/g;' <<< "$relative_path") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
+                        if [[ "$only_quizzes" == "" ]]; then 
+                            only_quizzes+="${relative_path%\.*}"
+                        else
+                            only_quizzes+=",${relative_path%\.*}"
+                        fi
+                        shift;
+                    done
+                    if [[ "$1" == "help" ]]; then
+                        echo -e "${NON_FATAL_ERROR}${BOLD}Unexpected call to help in the middle of the arguments.${NORMAL}";
+                        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine help${NORMAL}"
+                        shift;
+                    fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
+                else
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                fi ;;
+        esac
+    done
+    if [[ $force_flag == true ]]; then
+        valid_data=0
+    else
+        valid_data=$(echo $(awk '
+            BEGIN {
+                FS=","
+                OFS=","
+                invalid_data=0
+            }
+            NR == 1 {
+                for (i = 3; i <= NF; i++){
+                    if ($i ~ /^Total[[:space:]]*$/) {
+                        invalid_data=1
+                        total_column=i
+                    }
+                }
+                if (invalid_data == 0) {
+                    print "0"
+                    exit
                 }
             }
-            if (invalid_data == true) {
-                print "0"
-                exit
+            NR > 1 {
+                if (!($total_column ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/)){
+                    print "0"
+                    exit
+                }
             }
-        }
-        NR > 1 {
-            if (!($total_column ~ /^[0-9]+(\.[0-9]+)?$/)){
-                print "0"
+            END {
+                print "1"
             }
-        }
-    ' "$WORKING_DIRECTORY/main.csv"))
-    if [[ $invalid_data -eq 1 ]]; then
+        ' "$WORKING_DIRECTORY/main.csv"))    
+    fi
+    if [[ $valid_data == "1" ]]; then
         echo "Total column is already present in main.csv. Exiting..."
         exit 0
     else
@@ -797,24 +869,31 @@ function total() {
         }
         NR == 1 {
             ending=2
+            ending_found=false
+            total_column=NF+1
             for (i = 3; i <= NF; i++){
-                if (!($i ~ /^Total$/) && !($i ~ /^Mean$/)){
+                if (!ending_found && !($i ~ /^Total$/) && !($i ~ /^Mean$/)){
                     ending=i
                 }
                 else {
-                    break
+                    ending_found=true
+                    if ($i ~ /^Total$/){
+                        total_column=i
+                    }
                 }
             }
-            print $0, "Total"
+            $total_column="Total"
+            print $0
         }
         NR > 1 {
             total=0
             for (i = 3; i <= ending; i++){
-                if ($i ~ /^[0-9]+(\.[0-9]+)?$/){
+                if ($i ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/){
                     total+=$i
                 }
             }
-            print $0, total
+            $total_column=total
+            print $0
         }
         ' "$WORKING_DIRECTORY/main.csv" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
