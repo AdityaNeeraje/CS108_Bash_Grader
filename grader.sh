@@ -460,12 +460,13 @@ function levenshtein() {
 }
 
 function query() {
-    getopt -o "n: --long number:" -- "$@" > /dev/null
+    getopt -o qn: --long number:,uniq -- "$@" > /dev/null
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
     declare -a args
     starting_args=true
+    unique_flag=false
     number="3" # 3 seemed optimal after a bit of experimentation (also, there are 3 Adityas in the freshie batch, and this prints out our names when our name is misspelt and queried)
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
@@ -486,6 +487,11 @@ function query() {
                 fi
                 # If the value of "$1" is help, then help is called, if not, the non_fatal_error message is printed and the argument is ignored
                 ;;
+            --uniq|-u)
+                starting_args=false
+                unique_flag=true
+                shift
+                continue ;;
             help) # If help is passed as an argument, all other arguments will be ignored, because exit is called immediately after help
                 echo -e "${INFO}${BOLD}Usage..${NORMAL}"
                 echo -e "${INFO}${BOLD}bash grader.sh query [QUERIES] [OPTIONS]${NORMAL}"
@@ -547,6 +553,9 @@ function query() {
                 fi
             done
             # Erasing the previous two lines
+            for ((i=0; i < 100; i++)); do
+                echo -ne " "
+            done
             echo -ne "\n"
             for ((i=0; i < 100; i++)); do
                 echo -ne " "
@@ -567,6 +576,7 @@ function query() {
             echo "An exact match was found for $name in main.csv."
             grep -i "$name" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*),([^,]*),(.*)$/\1,\2/'
         fi
+        echo -ne "\n\n"
     done
 }
 
@@ -974,6 +984,33 @@ function total() {
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
 }
 
+function update() {
+    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
+    echo -e "${INFO}${BOLD}Enter details in the following format: Quiz Name,Roll Number, Updated Score${NORMAL}"
+    declare -a label=(); declare -a scores=();
+    quizzes_in_main=$(head -n 1 "$WORKING_DIRECTORY/main.csv" | sed -E 's/Roll_Number,Name,(.*)/\1/; s/,/~/g')
+    while read -p "Enter the details of the next update: " quiz_name roll_number score; do
+        if [[ "$quiz_name" == "" || "$roll_number" == "" || "$score" == "" ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid input. All three fields are required are required.${NORMAL}"
+            continue
+        elif [[ ! "$quizzes_in_main" =~ ~$quiz_name~ ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid quiz name entered. Please enter a valid quiz name.${NORMAL}"
+            echo -e "${INFO}${BOLD}Valid quiz names are: $(echo $quizzes_in_main | tr '~' '\n')${NORMAL}"
+            continue
+        fi
+        label+=("${quiz_name}~${roll_number}")
+        scores+=("$score")
+    done
+    echo "${INFO}${BOLD}EOF Received.. Processing updates...${NORMAL}" # I feel it will be better to process all updates at once rather than with 
+    if [[ ${#quizzes[@]} -eq 0 ]]; then
+        echo -ne "\n"
+        echo -e "${ERROR}${BOLD}No valid updates found.${NORMAL}"
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}Enter quiz_name (enclosed in quotes if need be), roll_number and updated score separated by spaces${NORMAL}"
+        exit 1
+    fi
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -1009,6 +1046,9 @@ function main() {
     elif [[ "$1" == "query" ]]; then
         shift;
         query "$@"
+    elif [[ "$1" == "update" ]]; then
+        shift;
+        update "$@"
     elif [[ "$1" == "analyze" || "$1" == "analyse" ]]; then # Don't know whether you prefer British or American English
         shift;
         analyze "$@"
