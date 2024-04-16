@@ -460,7 +460,7 @@ function levenshtein() {
 }
 
 function query() {
-    getopt -o qn: --long number:,uniq -- "$@" > /dev/null
+    getopt -o un: --long number:,uniq -- "$@" > /dev/null
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
@@ -1005,7 +1005,7 @@ function total() {
 function update() {
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     echo -e "${INFO}${BOLD}Enter details in the following format: Quiz Name,Roll Number, Updated Score${NORMAL}"
-    declare -a label=(); declare -a scores=();
+    declare -a labels=(); declare -a scores=();
     quizzes_in_main=$(head -n 1 "$WORKING_DIRECTORY/main.csv" | sed -E 's/Roll_Number,Name,(.*)/\1/; s/,/~/g')
     while read -p "Enter the details of the next update: " quiz_name roll_number score; do
         if [[ "$quiz_name" == "" || "$roll_number" == "" || "$score" == "" ]]; then
@@ -1016,17 +1016,63 @@ function update() {
             echo -e "${INFO}${BOLD}Valid quiz names are: $(echo $quizzes_in_main | tr '~' '\n')${NORMAL}"
             continue
         fi
-        label+=("${quiz_name}~${roll_number}")
+        final_roll_number=$(query "$roll_number" -u)
+        student_name=$(grep -m 1 -i "$final_roll_number" "$WORKING_DIRECTORY/main.csv" | cut -d ',' -f 2)
+        if [[ ${final_roll_number,,} != ${roll_number,,} ]]; then
+            read -t 5 -p "Did you mean $final_roll_number, $student_name? (y/n): " answer
+            if [[ ! ("$answer" == "y") ]]; then
+                continue
+            fi
+        fi
+        roll_number=$final_roll_number
+        if [[ ! ("$score" =~ ^[+-]?[0-9]+(\.[0-9]+)?$) ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid score entered. Please enter a valid score.${NORMAL}"
+            continue
+        fi
+        labels+=("${quiz_name}~${roll_number}")
         scores+=("$score")
     done
-    echo "${INFO}${BOLD}EOF Received.. Processing updates...${NORMAL}" # I feel it will be better to process all updates at once rather than with 
-    if [[ ${#quizzes[@]} -eq 0 ]]; then
-        echo -ne "\n"
+    echo -e "\n${INFO}${BOLD}EOF Received.. Processing updates...${NORMAL}" # I feel it will be better to process all updates at once rather than with 
+    if [[ ${#labels[@]} -eq 0 ]]; then
         echo -e "${ERROR}${BOLD}No valid updates found.${NORMAL}"
         echo -e "${BOLD}Usage.."
         echo -e "${INFO}${BOLD}Enter quiz_name (enclosed in quotes if need be), roll_number and updated score separated by spaces${NORMAL}"
         exit 1
     fi
+    awk -v LABELS="${labels[*]}" -v SCORES="${scores[*]}" '
+        BEGIN {
+            FS=","
+            OFS=","
+            split(LABELS, LABELS_ARRAY, " ")
+            split(SCORES, SCORES_ARRAY, " ")
+            for (i in LABELS_ARRAY){
+                split(LABELS_ARRAY[i], TEMP_ARRAY, "~")
+                # I plan to make roll_numbers of the format quiz_name~scores separated by commas
+                if (TEMP_ARRAY[2] in roll_numbers){
+                    roll_numbers[TEMP_ARRAY[2]]=roll_numbers[TEMP_ARRAY[2]] "," TEMP_ARRAY[1] "~" SCORES_ARRAY[i]
+                }
+                else {
+                    roll_numbers[TEMP_ARRAY[2]]=TEMP_ARRAY[1] "~" SCORES_ARRAY[i]
+                }
+            }
+        }
+        NR == 1 {
+            for (i = 3; i <= NF; i++){
+                quizzes[$i]=i
+            }
+        }
+        NR > 1 {
+            if ($1 in roll_numbers){
+                split(roll_numbers[$1], TEMP_ARRAY, ",")
+                for (i in TEMP_ARRAY){
+                    split(TEMP_ARRAY[i], TEMP_ARRAY2, "~")
+                    $quizzes[TEMP_ARRAY2[1]]=TEMP_ARRAY2[2]
+                }
+                $1 = $1
+                print $0
+            }
+        }
+        ' "$WORKING_DIRECTORY/main.csv"
 }
 
 function main() {
