@@ -660,7 +660,6 @@ function percentile() {
         marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
         if [[ "$marks" == "" ]]; then
             # Some common mistakes could be swapping the order of the names, especially for Telugu people
-            # 
             min_distance=100000
             closest=""
             total_size=$((${#names[@]}+${#roll_numbers[@]}))
@@ -1219,6 +1218,94 @@ function git_init() {
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
 }
 
+function prompt_commit() {
+    if [[ $number_of_prompts -eq 0 ]]; then
+        echo -e "${NON_FATAL_ERROR}${BOLD}I know git commits get less informative over time, but I need something from you${NORMAL}"
+    fi
+    commit_data=$(curl https://whatthecommit.com/ 2>&1)
+    commit_data="${commit_data#*<p>}"
+    commit_data="${commit_data%%</p>*}"
+    echo -e "\n${INFO}${BOLD}Here's a sample commit from https://whatthecommit.com/:\n$commit_data${NORMAL}"
+    read -t 10 -p "Enter your own commit or press the up arrow or w to use the above commit:" commit
+    if [[ "$commit" == "" ]]; then
+        let number_of_prompts++
+        if [[ "$number_of_prompts" -gt 4 ]]; then
+            echo -e "\n${ERROR}${BOLD}No commit message received. Exiting...${NORMAL}"
+            exit 1
+        fi
+    elif [[ "$commit" == "w" || "$commit" == "W" ]]; then
+        echo "You pressed w. Using the above commit message."
+        message="$commit_data"
+    elif [[ "$commit" == $'\033[A' ]]; then
+        echo "You pressed the up arrow key. Using the above commit message."
+        message="$commit_data"
+    fi
+}
+
+function git_commit() {
+    getopt -o i:m --long init:,message -- "$@" > /dev/null 
+    number_of_prompts=0
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -i|--init) 
+                # At this point, there are two possibilities -> One is that the user has already added a message, the other is that the user is yet to input a mesasage
+                if [[ -n "$message" ]]; then
+                    shift ;
+                    git_init "$@"
+                    break
+                else 
+                    declare -a init_args=()
+                    while [[ "$1" != "-m" && "$1" != "--message" ]]; do
+                        init_args+=("$1")
+                        shift
+                    done
+                    git_init "${init_args[@]}"
+                fi
+                continue ;;
+            -m|--message)
+                if [[ ! -n "$2" || "$2" =~ ^- ]]; then
+                    prompt_commit
+                    if [[ "$commit" == "" ]]; then
+                        continue
+                    else
+                        shift
+                        continue
+                    fi
+                else
+                    message="$2"
+                    shift 2
+                    continue
+                fi ;;
+            *)
+                echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Exiting...${NORMAL}"
+                exit 1 ;;
+        esac
+    done
+    while [[ ! -n "$message" ]]; do
+        prompt_commit
+    done
+    if [[ ! -d "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
+        exit 1
+    fi
+    hash=""
+    for i in {1..16}; do
+        hash+=$(echo "obase=16;$RANDOM%16" | bc)
+    done
+    ### TODO Add gitignore functionality. Decide which files to copy
+    readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
+    # if [[ -f "$WORKING_DIRECTORY/.gitignore" ]]; do
+
+    # done
+    mkdir "$WORKING_DIRECTORY/.my_git/$hash"
+    cp "${quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+}
+
+function git_log() {
+    pass
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -1266,6 +1353,9 @@ function main() {
     elif [[ "$1" == "git_init" ]]; then
         shift;
         git_init "$@"
+    elif [[ "$1" == "git_commit" ]]; then
+        shift;
+        git_commit "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
