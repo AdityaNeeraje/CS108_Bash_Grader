@@ -6,6 +6,8 @@ NON_FATAL_ERROR='\033[0;33m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
 INFO='\033[0;32m'
+FILLED_BLOCK='\u2588'
+DOTTED_BLOCK='\u2591'
 
 dont_combine_flag=false
 force_flag=false
@@ -506,7 +508,7 @@ function query() {
     if [[ ${#args[@]} -eq 0 ]]; then
         echo -e "${ERROR}${BOLD}No valid student names or roll numbers found.${NORMAL}"
         echo -e "${BOLD}Usage.."
-        echo -e "${INFO}${BOLD}bash grader.sh percentile [STUDENT_NAMES] [OPTIONS]${NORMAL}"
+        echo -e "${INFO}${BOLD}bash grader.sh query [STUDENT_NAMES] [OPTIONS]${NORMAL}"
         exit 1
     fi
     readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
@@ -516,11 +518,40 @@ function query() {
         declare -a differences=();
         if [[ "$marks" == "" ]]; then
             index=2
+            total_size=$((${#names[@]}+${#roll_numbers[@]}))
+            progress=0
+            prev_time=$(echo "$(date +%s.%N)-1" | bc)
             for present_name in "${names[@]}" "${roll_numbers[@]}"; do
+                let progress++
                 distance=$(levenshtein "$name" "$present_name")
                 differences+=("$index,$distance")
                 let index++
+                if [[ $distance -lt $min_distance ]]; then
+                    min_distance=$distance
+                    closest="$present_name"
+                fi
+                time=$(date +%s.%N)
+                if [[ $(echo "$time-$prev_time > 0.2" | bc) -eq 1 ]]; then
+                    echo -n "Percentage completion:"
+                    echo -n $(echo "scale=2; (($progress*100) / $total_size)" | bc)
+                    echo -ne "%\n"
+                    integer_percentage=$(echo "scale=0; (($progress*100) / $total_size)" | bc)
+                    for ((i=0; i < integer_percentage; i++)); do
+                        echo -ne "$FILLED_BLOCK" # Filled block
+                    done
+                    for ((i=integer_percentage; i < 100; i++)); do
+                        echo -ne "$DOTTED_BLOCK" # Dotted block
+                    done
+                    echo -ne "\033[F\r"
+                    prev_time=$time
+                fi
             done
+            # Erasing the previous two lines
+            echo -ne "\n"
+            for ((i=0; i < 100; i++)); do
+                echo -ne " "
+            done
+            echo -ne "\033[F\r"
             readarray -t lines < <(for distance in "${differences[@]}"; do echo "$distance"; done | sort -r -t ',' -k2,2n | head -n $number | cut -d ',' -f 1)
             if [[ ${#lines[@]} -eq 0 ]]; then
                 echo -e "${NON_FATAL_ERROR}${BOLD}No data found matching the query $name in main.csv. Skipping...${NORMAL}"
@@ -604,13 +635,38 @@ function percentile() {
             # 
             min_distance=100000
             closest=""
+            total_size=$((${#names[@]}+${#roll_numbers[@]}))
+            progress=0
+            prev_time=$(echo "$(date +%s.%N)-1" | bc)
             for present_name in "${names[@]}" "${roll_numbers[@]}"; do
+                let progress++
                 distance=$(levenshtein "$name" "$present_name")
                 if [[ $distance -lt $min_distance ]]; then
                     min_distance=$distance
                     closest="$present_name"
                 fi
+                time=$(date +%s.%N)
+                if [[ $(echo "$time-$prev_time > 0.2" | bc) -eq 1 ]]; then
+                    echo -n "Percentage completion:"
+                    echo -n $(echo "scale=2; (($progress*100) / $total_size)" | bc)
+                    echo -ne "%\n"
+                    integer_percentage=$(echo "scale=0; (($progress*100) / $total_size)" | bc)
+                    for ((i=0; i < integer_percentage; i++)); do
+                        echo -ne "$FILLED_BLOCK" # Filled block
+                    done
+                    for ((i=integer_percentage; i < 100; i++)); do
+                        echo -ne "$DOTTED_BLOCK" # Dotted block
+                    done
+                    echo -ne "\033[F\r"
+                    prev_time=$time
+                fi
             done
+            # Erasing the previous two lines
+            echo -ne "\n"
+            for ((i=0; i < 100; i++)); do
+                echo -ne " "
+            done
+            echo -ne "\033[F\r"
             if [[ $min_distance -gt $APPROXIMATION_DISTANCE ]]; then
                 echo -e "${NON_FATAL_ERROR}${BOLD}No data found matching the query $name in main.csv. Skipping...${NORMAL}"
                 continue
@@ -640,12 +696,15 @@ function percentile() {
                 FS=","
                 split(MARKS, ARRAY, "\x19")
                 num_quizzes=length(ARRAY)
-                OFMT = "%." ROUND "f" # Rounding off output to 2 decimal places
+                OFMT = "%." ROUND "f" # Rounding off output to ROUND decimal places
             }
             NR == 1 {
                 for (i in ARRAY){
-                    if (!(ARRAY[i] ~ /^[[:space:]]*a[[:space:]]*$/)) {
+                    if (!(ARRAY[i] ~ /^[[:space:]]*a[[:space:]]*$/) && !($(i+2) ~ /Total/) && !($(i+2) ~ /Mean/)) {
                         quizzes[i+2]=$(i+2)
+                    }
+                    else if (ARRAY[i] ~ /^a$/){
+                        print "\033[0;33m" "\033[1m" NAME " has not attempted " $(i+2) "." "\033[0m" # Decided to make this a non-fatal error color
                     }
                 } # quizzes has all the indices which are valid
                 if (length(quizzes) == 0) {
@@ -653,7 +712,7 @@ function percentile() {
                     exit 1
                 }
                 # If at least one set of marks has been found, go ahead with printing the analysis
-                print "Performance analysis of", NAME, "in quizzes"
+                print "\033[1m" "Performance analysis of", NAME, "in quizzes" "\033[0m"
                 print "====================================================="
             }
             NR > 1 {
@@ -728,8 +787,21 @@ function analyze() {
     fi
     readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
     readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
-    for name in "${args[@]}"; do 
-        readarray -t data < <(percentile "$name" -r "$round")
+    for name in "${args[@]}"; do
+        readarray -t data < <(echo -e "$(percentile "$name" -r "$round")" | cat -v | awk '
+        {
+            if (to_print) {print}
+        }
+        /Performance/ {
+            where=match($0, "analysis")
+            print substr($0, where)
+        }
+        /===/ {
+            to_print=!to_print
+        }
+        ') # Had to use awk as I did above because there were a lot of control characters in the output (carriage returns, etc) which I tried processing using sed but it did not work out
+        # echo -e "$(percentile "$name" -r "$round")" | cat -A | sed -En '$!N; $s/\n/ /g; $s/(.*)/Performance analysis \1/p' | cat -A
+        #  < <(echo -e "$(percentile "$name" -r "$round")" | sed -E 'N;$s/.*analysis (.*)$/Performance analysis \1/')
         if [[ "${data[0]}" =~ "No data found matching" ]]; then
             echo "$data"
             exit
@@ -737,13 +809,16 @@ function analyze() {
         average=0
         count=0
         underformance=false
-        for line in "${data[@]:2:$((${#data[@]}-3))}"; do
+        for line in "${data[@]:1:$((${#data[@]}-3))}"; do
             average=$(echo "scale=$round; $average+$(echo "$line" | awk -F': ' '{print $NF}')" | bc)
             let count++
         done
         average=$(echo "scale=$round; $average/$count" | bc)
-        for line in "${data[@]:2:$((${#data[@]}-3))}"; do
+        for line in "${data[@]:1:$((${#data[@]}-3))}"; do
             line=${line#Quiz }
+            if [[ "${line% Percentile:*}" == "Total" || "${line% Percentile:*}" == "Mean" ]]; then
+                continue
+            fi 
             relative_performance=$(echo "scale=$round; $average-$(echo "$line" | awk -F': ' '{print $NF}')" | bc) 
             if [[ "$(echo "$relative_performance >= 20" | bc)" == "1" ]]; then
                 echo "$name significantly underperformed in $(echo "${line% Percentile:*}"), with his percentile being $relative_performance lower than his average percentile."
@@ -934,7 +1009,7 @@ function main() {
     elif [[ "$1" == "query" ]]; then
         shift;
         query "$@"
-    elif [[ "$1" == "analyze" ]]; then
+    elif [[ "$1" == "analyze" || "$1" == "analyse" ]]; then # Don't know whether you prefer British or American English
         shift;
         analyze "$@"
     elif [[ "$1" == "total" ]]; then
