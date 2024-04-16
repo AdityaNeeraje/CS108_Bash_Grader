@@ -519,6 +519,9 @@ function query() {
     fi
     readarray -t names < <(cut -d ',' -f 2 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
     readarray -t roll_numbers < <(cut -d ',' -f 1 "$WORKING_DIRECTORY/main.csv" | tail -n +2)
+    if [[ $unique_flag == true ]]; then
+        number="1"
+    fi
     for name in "${args[@]}"; do 
         marks=$(grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv")
         declare -a differences=();
@@ -527,6 +530,7 @@ function query() {
             total_size=$((${#names[@]}+${#roll_numbers[@]}))
             progress=0
             prev_time=$(echo "$(date +%s.%N)-1" | bc)
+            min_distance=100000
             for present_name in "${names[@]}" "${roll_numbers[@]}"; do
                 let progress++
                 distance=$(levenshtein "$name" "$present_name")
@@ -536,33 +540,43 @@ function query() {
                     min_distance=$distance
                     closest="$present_name"
                 fi
-                time=$(date +%s.%N)
-                if [[ $(echo "$time-$prev_time > 0.2" | bc) -eq 1 ]]; then
-                    echo -n "Percentage completion:"
-                    echo -n $(echo "scale=2; (($progress*100) / $total_size)" | bc)
-                    echo -ne "%\n"
-                    integer_percentage=$(echo "scale=0; (($progress*100) / $total_size)" | bc)
-                    for ((i=0; i < integer_percentage; i++)); do
-                        echo -ne "$FILLED_BLOCK" # Filled block
-                    done
-                    for ((i=integer_percentage; i < 100; i++)); do
-                        echo -ne "$DOTTED_BLOCK" # Dotted block
-                    done
-                    echo -ne "\033[F\r"
-                    prev_time=$time
+                if [[ $unique_flag == false ]]; then
+                    time=$(date +%s.%N)
+                    if [[ $(echo "$time-$prev_time > 0.2" | bc) -eq 1 ]]; then
+                        echo -n "Percentage completion:"
+                        echo -n $(echo "scale=2; (($progress*100) / $total_size)" | bc)
+                        echo -ne "%\n"
+                        integer_percentage=$(echo "scale=0; (($progress*100) / $total_size)" | bc)
+                        for ((i=0; i < integer_percentage; i++)); do
+                            echo -ne "$FILLED_BLOCK" # Filled block
+                        done
+                        for ((i=integer_percentage; i < 100; i++)); do
+                            echo -ne "$DOTTED_BLOCK" # Dotted block
+                        done
+                        echo -ne "\033[F\r"
+                        prev_time=$time
+                    fi                    
                 fi
             done
             # Erasing the previous two lines
-            for ((i=0; i < 100; i++)); do
-                echo -ne " "
-            done
-            echo -ne "\n"
-            for ((i=0; i < 100; i++)); do
-                echo -ne " "
-            done
-            echo -ne "\033[F\r"
+            if [[ $unique_flag == false ]]; then
+                for ((i=0; i < 100; i++)); do
+                    echo -ne " "
+                done
+                echo -ne "\n"
+                for ((i=0; i < 100; i++)); do
+                    echo -ne " "
+                done
+                echo -ne "\033[F\r"
+            else 
+                grep -m 1 -i "$closest" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*).*/\1/'
+                exit
+            fi
             readarray -t lines < <(for distance in "${differences[@]}"; do echo "$distance"; done | sort -r -t ',' -k2,2n | head -n $number | cut -d ',' -f 1)
             if [[ ${#lines[@]} -eq 0 ]]; then
+                if [[ $unique_flag == true ]]; then
+                    exit # Only one argument should have been passed, so we can exit
+                fi
                 echo -e "${NON_FATAL_ERROR}${BOLD}No data found matching the query $name in main.csv. Skipping...${NORMAL}"
                 continue
             fi
@@ -573,6 +587,10 @@ function query() {
                 sed -n "$line{p;q}" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*),([^,]*),(.*)$/\1,\2/'
             done
         else
+            if [[ $unique_flag == true ]]; then
+                grep -m 1 -i "$name" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*).*/\1/'
+                exit 0
+            fi
             echo "An exact match was found for $name in main.csv."
             grep -i "$name" "$WORKING_DIRECTORY/main.csv" | sed -E 's/^([^,]*),([^,]*),(.*)$/\1,\2/'
         fi
