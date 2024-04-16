@@ -1003,17 +1003,22 @@ function total() {
 }
 
 function update() {
-    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     echo -e "${INFO}${BOLD}Enter details in the following format: Quiz Name,Roll Number, Updated Score${NORMAL}"
     declare -a labels=(); declare -a scores=();
     quizzes_in_main=$(head -n 1 "$WORKING_DIRECTORY/main.csv" | sed -E 's/Roll_Number,Name,(.*)/\1/; s/,/~/g')
-    while read -p "Enter the details of the next update: " quiz_name roll_number score; do
-        if [[ "$quiz_name" == "" || "$roll_number" == "" || "$score" == "" ]]; then
+    while read -r -p "Enter the quiz_name for the next update: " quiz_name; do
+        if [[ "$quiz_name" == "" ]]; then
             echo -e "${NON_FATAL_ERROR}${BOLD}Invalid input. All three fields are required are required.${NORMAL}"
             continue
-        elif [[ ! "$quizzes_in_main" =~ ~$quiz_name~ ]]; then
+        fi
+        if [[ ! "~$quizzes_in_main~" =~ ~$quiz_name~ ]]; then
             echo -e "${NON_FATAL_ERROR}${BOLD}Invalid quiz name entered. Please enter a valid quiz name.${NORMAL}"
             echo -e "${INFO}${BOLD}Valid quiz names are: $(echo $quizzes_in_main | tr '~' '\n')${NORMAL}"
+            continue
+        fi
+        read -r -p "Enter the roll number for the next update: " roll_number
+        if [[ "$roll_number" == "" ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid input. All three fields are required are required.${NORMAL}"
             continue
         fi
         final_roll_number=$(query "$roll_number" -u)
@@ -1025,6 +1030,7 @@ function update() {
             fi
         fi
         roll_number=$final_roll_number
+        read -r -p "Enter the updated score for the next update: " score
         if [[ ! ("$score" =~ ^[+-]?[0-9]+(\.[0-9]+)?$) ]]; then
             echo -e "${NON_FATAL_ERROR}${BOLD}Invalid score entered. Please enter a valid score.${NORMAL}"
             continue
@@ -1060,6 +1066,7 @@ function update() {
             for (i = 3; i <= NF; i++){
                 quizzes[$i]=i
             }
+            print $0
         }
         NR > 1 {
             if ($1 in roll_numbers){
@@ -1068,11 +1075,56 @@ function update() {
                     split(TEMP_ARRAY[i], TEMP_ARRAY2, "~")
                     $quizzes[TEMP_ARRAY2[1]]=TEMP_ARRAY2[2]
                 }
-                $1 = $1
-                print $0
             }
+            $1 = $1
+            print $0
         }
         ' "$WORKING_DIRECTORY/main.csv"
+    declare -A quiz_files=()
+    index=0
+    while [[ $index -lt ${#labels[@]} ]]; do 
+        label=${labels[$index]}
+        if [[ -n "${quiz_files["${label%%~*}.csv"]}" ]]; then
+            quiz_files["${label%%~*}.csv"]="${quiz_files["${label%%~*}.csv"]},${label#*~}~${scores[$index]}"
+        else
+            quiz_files["${label%%~*}.csv"]="${label#*~}~${scores[$index]}"
+        fi
+        let index++
+    done
+    for quiz in "${!quiz_files[@]}"; do
+        echo ${quiz_files[$quiz]}
+        awk -v NEW_DATA="${quiz_files[$quiz]}" -v Present_WD="$WORKING_DIRECTORY" '
+            BEGIN {
+                FS=","
+                OFS=","
+                split(NEW_DATA, NEW_DATA_ARRAY, ",")
+                for (data in NEW_DATA_ARRAY){
+                    split(NEW_DATA_ARRAY[data], TEMP_ARRAY, "~")
+                    roll_numbers[TEMP_ARRAY[1]]=TEMP_ARRAY[2]
+                }
+            }
+            NR == 1 {
+                print $0
+            }
+            NR > 1 {
+                if ($1 in roll_numbers){
+                    $3=roll_numbers[$1]
+                    delete roll_numbers[$1]
+                }
+                $1=$1
+                print $0
+            }
+            END {
+                for (num in roll_numbers){
+                    command = "grep -m 1 -i " num " \"" Present_WD "\"/main.csv | cut -d \",\" -f 2"
+                    command | getline output
+                    # name=$(grep -m 1 -i num Present_WD/main.csv | cut -d "," -f 2)
+                    print num, output, roll_numbers[num]
+                }
+            }
+            ' "$WORKING_DIRECTORY/$quiz"
+        ### TODO -> Make this awk change in-place. I am leaving that to the end so that all testing is over before I overwrite existing files
+    done
 }
 
 function main() {
