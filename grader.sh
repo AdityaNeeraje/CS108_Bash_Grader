@@ -1045,13 +1045,15 @@ function update() {
         echo -e "${INFO}${BOLD}Enter quiz_name (enclosed in quotes if need be), roll_number and updated score separated by spaces${NORMAL}"
         exit 1
     fi
+    ### TODO -> Slightly bad handling of filenames with a space in them -> This can be solved by using a very weird character as IFS
+    IFS=$'\x19'
     awk -v LABELS="${labels[*]}" -v SCORES="${scores[*]}" '
         BEGIN {
             FS=","
             OFS=","
-            split(LABELS, LABELS_ARRAY, " ")
-            split(SCORES, SCORES_ARRAY, " ")
-            for (i in LABELS_ARRAY){
+            split(LABELS, LABELS_ARRAY, "\x1A")
+            split(SCORES, SCORES_ARRAY, "\x1A")
+            for (i in LABELS_ARRAY){ # Labels array has the format quiz_name-roll_number
                 split(LABELS_ARRAY[i], TEMP_ARRAY, "~")
                 # I plan to make roll_numbers of the format quiz_name~scores separated by commas
                 if (TEMP_ARRAY[2] in roll_numbers){
@@ -1059,11 +1061,16 @@ function update() {
                 }
                 else {
                     roll_numbers[TEMP_ARRAY[2]]=TEMP_ARRAY[1] "~" SCORES_ARRAY[i]
+                    # Roll_numbers is of the format quiz_name~score,quiz_name~score
                 }
             }
         }
         NR == 1 {
             for (i = 3; i <= NF; i++){
+                if ($i ~ /^Total$/){
+                    total_column=i
+                    continue
+                }
                 quizzes[$i]=i
             }
             print $0
@@ -1073,7 +1080,12 @@ function update() {
                 split(roll_numbers[$1], TEMP_ARRAY, ",")
                 for (i in TEMP_ARRAY){
                     split(TEMP_ARRAY[i], TEMP_ARRAY2, "~")
+                    if (total_column != 0){
+                        $total_column-=$quizzes[TEMP_ARRAY2[1]]
+                        $total_column+=TEMP_ARRAY2[2]                        
+                    }
                     $quizzes[TEMP_ARRAY2[1]]=TEMP_ARRAY2[2]
+                    # print quizzes[TEMP_ARRAY2[1]], TEMP_ARRAY2[2], $1
                 }
             }
             $1 = $1
