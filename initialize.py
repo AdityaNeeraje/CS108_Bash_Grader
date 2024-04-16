@@ -1,7 +1,7 @@
 #!/us//bin/python
 import numpy as np
 
-quizzes_list = ["quiz1.csv", "quiz2.csv", "endsem.csv", "some_more_quizzes/quiz 2.csv"]
+quizzes_list = ["quiz1.csv", "quiz2.csv", "endsem.csv", "quiz 2.csv"]
 
 with open("students.commaseparatedvalues", "r") as file:
     data = [line.split(",")[1:3] for line in file.readlines()[1:]]

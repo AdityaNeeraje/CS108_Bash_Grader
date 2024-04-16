@@ -192,7 +192,7 @@ function combine(){
             fi
             quizzes+=("$file")
             line+="$file,"
-        done < <(find "$WORKING_DIRECTORY" -name "*.csv" -print0) # null-terminated instead of newline-terminated, makes sure the last file is also processed correctly
+        done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0) # null-terminated instead of newline-terminated, makes sure the last file is also processed correctly
     fi
     num_quizzes=$((${#quizzes[@]}+${#old_quizzes[@]}))
     if [[ $num_quizzes -eq 0 ]]; then
@@ -1139,6 +1139,86 @@ function update() {
     done
 }
 
+function git_init() {
+    getopt -o f --long force -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -f|--force) 
+                rm "$WORKING_DIRECTORY/.my_git"
+                shift ;
+                continue ;;
+            *)
+                directory="$1"; shift; continue ;;
+        esac
+    done
+    if [[ "$1" == "help" ]]; then
+        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+        echo -e "${INFO}${BOLD}bash grader.sh git_init [DIRECTORY]${NORMAL}"
+        echo -e "${INFO}${BOLD}Options:${NORMAL}"
+        echo -e "${INFO}${BOLD}-f, --force${NORMAL} Forcefully reinitializes the git repository${NORMAL}"
+        echo -e "${INFO}${BOLD}Example: bash grader.sh git_init ~/Documents/Grader${NORMAL}"
+        exit 0
+    fi
+    if [[ "$directory" == "" ]]; then
+        echo -e "${ERROR}${BOLD}No directory specified. Exiting...${NORMAL}"
+        exit 1
+    fi
+    if [[ "${directory: -1:1}" != "/" ]]; then
+        directory+="/"
+    fi
+    if [[ "${directory:0:1}" == "/" || "${directory:0:1}" == "~" ]]; then
+        if [[ "${directory:0:1}" == "/" ]]; then
+            final_directory="${directory:0:1}"
+        else
+            final_directory="${directory:0:2}"
+        fi
+        directory="${directory:1}"
+        while [[ -n "$directory" ]]; do
+            mkdir "$final_directory${directory%%/*}" 2>"$WORKING_DIRECTORY/.git_log"
+            if [[ ! -d "$final_directory${directory%%/*}" ]]; then
+                echo -e "${ERROR}${BOLD}Unable to create the final directory. Please check the .git_log file in $WORKING_DIRECTORY. Exiting...${NORMAL}"
+                exit 1
+            fi
+            final_directory=$(realpath "$final_directory${directory%%/*}/")
+            if [[ "${final_directory: -1:1}" != "/" ]]; then
+                final_directory+="/"
+            fi
+            directory="${directory#*/}"
+        done
+    else
+        directory="${directory##\./}"
+        final_directory=$(realpath "$WORKING_DIRECTORY")
+        if [[ "${final_directory: -1:1}" != "/" ]]; then
+            final_directory+="/"
+        fi
+        while [[ -n "$directory" ]]; do
+            mkdir "$final_directory${directory%%/*}" 2>"$WORKING_DIRECTORY/.git_log"
+            if [[ ! -d "$final_directory${directory%%/*}" ]]; then
+                echo -e "${ERROR}${BOLD}Unable to create the final directory. Please check the .git_log file in $WORKING_DIRECTORY. Exiting...${NORMAL}"
+                exit 1
+            fi
+            final_directory=$(realpath "$final_directory${directory%%/*}/")
+            if [[ "${final_directory: -1:1}" != "/" ]]; then
+                final_directory+="/"
+            fi
+            directory="${directory#*/}"
+        done
+    fi
+    echo "$final_directory"
+    if [[ ! -d "$final_directory" ]]; then
+        echo -e "${ERROR}${BOLD}Unable to create the final directory. Please check the .git_log file in $WORKING_DIRECTORY. Exiting...${NORMAL}"
+        exit 1
+    fi
+    if [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") == "." ]]; then
+        echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
+        exit 1
+    fi
+    ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -1183,6 +1263,9 @@ function main() {
     elif [[ "$1" == "total" ]]; then
         shift;
         total "$@"
+    elif [[ "$1" == "git_init" ]]; then
+        shift;
+        git_init "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
