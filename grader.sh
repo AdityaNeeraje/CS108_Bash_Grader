@@ -1522,6 +1522,126 @@ with open(f"{working_directory}/main.csv") as file:
 EOF
 }
 
+function describe() {
+    getopt -o rd: --long round,drop: -- "$@" > /dev/null
+    round_value=4
+    starting_args=true
+    declare -a only_quizzes=()
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -r|--round) 
+                starting_args=false
+                shift;
+                if [[ "$1" =~ ^[0-9]+$ ]]; then
+                    round_value="$1"
+                    shift
+                fi
+                continue ;;
+            -d|--drop) 
+                starting_args=false
+                shift;
+                if [[ "$1" == "" ]]; then
+                    echo -e "${ERROR}${BOLD}No quizzes passed. Exiting...${NORMAL}"
+                    exit 1
+                fi
+                while [[ "$1" != "" ]]; do
+                    if [[ "$1" =~ ^-  ]]; then
+                        break
+                    fi
+                    if [[ -f "$WORKING_DIRECTORY/$1.csv" ]]; then
+                        drop_quizzes+=("$1")
+                    else
+                        echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                    fi
+                    shift
+                done
+                continue ;;
+            *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh describe [OPTIONS] [QUIZZES]${NORMAL}"
+                    echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                    echo -e "Arguments passed to the describe function prior to passing any flag are counted as the only quizzes to be considered in the output"
+                    echo -e "${INFO}${BOLD}-r, --round [VALUE]${NORMAL} Rounds off the output to VALUE decimal places. Default is 4, always recommended to have this value set above 3${NORMAL}"
+                    echo -e "${INFO}${BOLD}-d, --drop [QUIZZES]${NORMAL} Drops the specified quizzes from the output${NORMAL}"
+                    echo -e "${INFO}${BOLD}Example: bash grader.sh describe -r 4 -d quiz1 quiz2${NORMAL}"
+                    exit 0
+                fi
+                if [[ $starting_args == true && -f "$WORKING_DIRECTORY/$1.csv" ]]; then
+                    only_quizzes+=("$1")
+                else
+                    echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                fi 
+                shift; continue ;;
+        esac
+    done
+    for quiz in "${drop_quizzes[@]}"; do
+        only_quizzes=("${only_quizzes[@]/$quiz}")
+    done
+    IFS="~"
+    awk -v ROUND="$round_value" -v ONLY_QUIZZES="${only_quizzes[*]}" -v DROP_QUIZZES="${drop_quizzes[*]}" '
+        BEGIN {
+            FS=","
+            OFMT="%." ROUND "g"
+            CONVFMT="%." ROUND "g"
+            split(ONLY_QUIZZES, temp_quizzes, "~")
+            for (i in temp_quizzes){
+                only_quizzes[temp_quizzes[i]]=1
+            }
+            split(DROP_QUIZZES, temp_quizzes, "~")
+            for (i in temp_quizzes){
+                drop_quizzes[temp_quizzes[i]]=1
+            }
+        }
+        NR == 1 {
+            for (i=3; i<=NF; i++){
+                if ($i in drop_quizzes){
+                    continue
+                }
+                if ($i in only_quizzes || ONLY_QUIZZES == ""){
+                    quizzes[i]=$i
+                    sums[i]=0
+                    sum_of_squares[i]=0
+                    count[i]=0
+                }
+            }
+        }
+        NR > 1 {
+            for (i=3; i <= NF; i++){
+                if (! (i in quizzes)){
+                    continue
+                }
+                if (!($i ~ /a/)){
+                    sums[i]+=$i
+                    sum_of_squares[i]+=$i*$i
+                    count[i]++
+                    scores[i][count[i]]=$i
+                }
+            }
+        }
+        END {
+            for (i in scores){
+                print "Data regarding " quizzes[i] ":"
+                print "Mean: " sums[i]/count[i]
+                print "Standard Deviation: " sqrt((sum_of_squares[i] - sums[i]*sums[i]/count[i])/count[i])
+                # Suggestion from https://stackoverflow.com/questions/22666799/sorting-numerically-with-awk-gawk and https://www.gnu.org/software/gawk/manual/html_node/Array-Sorting-Functions.html
+                asort(scores[i],data,"@val_num_asc")
+                print "Minimum: " data[1]
+                # Method 4 taken from https://en.wikipedia.org/wiki/Quartile
+                n=count[i]
+                print "Third quartile: " data[int((n+1)/4)]*(1-(((n+1)%4)/4)) + data[int((n+1)/4)+1]*(((n+1)%4)/4)
+                print "Median: " data[int((n+1)/2)]*(1-(((n+1)%2)/2)) + data[int((n+1)/2)+1]*(((n+1)%2)/2)
+                print "First quartile: " data[int(3*(n+1)/4)]*(1-(((3*n+3)%4)/4)) + data[int(3*(n+1)/4)+1]*(((3*n+3)%4)/4)
+                print "Maximum: " data[count[i]]
+                print "\n"
+            }
+        }
+    ' "$WORKING_DIRECTORY/main.csv"
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -1572,9 +1692,6 @@ function main() {
     elif [[ "$1" == "git_commit" ]]; then
         shift;
         git_commit "$@"
-    elif [[ "$1" == "git_commit" ]]; then
-        shift;
-        git_commit "$@"
     elif [[ "$1" == "git_status" ]]; then
         shift;
         git_status "$@"
@@ -1587,6 +1704,9 @@ function main() {
     elif [[ "$1" == "stripplot" ]]; then
         shift;
         display_stripplot "$@"
+    elif [[ "$1" == "describe" ]]; then
+        shift;
+        describe "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
