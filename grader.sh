@@ -1239,33 +1239,35 @@ function prompt_commit() {
     elif [[ "$commit" == $'\033[A' ]]; then
         echo "You pressed the up arrow key. Using the above commit message."
         message="$commit_data"
+    else
+        message="$commit"
     fi
 }
 
 function git_commit() {
-    getopt -o i:m --long init:,message -- "$@" > /dev/null 
+    getopt -o i:maf --long init:,message,amend,force -- "$@" > /dev/null 
     number_of_prompts=0
+    amend_flag=false
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
+            -a|--amend)
+                amend_flag=true
+                shift
+                continue ;;
             -i|--init) 
                 # At this point, there are two possibilities -> One is that the user has already added a message, the other is that the user is yet to input a mesasage
-                if [[ -n "$message" ]]; then
-                    shift ;
-                    git_init "$@"
-                    break
-                else 
-                    declare -a init_args=()
-                    while [[ "$1" != "-m" && "$1" != "--message" ]]; do
-                        init_args+=("$1")
-                        shift
-                    done
-                    git_init "${init_args[@]}"
-                fi
+                shift
+                declare -a init_args=()
+                while [[ "$1" != "-m" && "$1" != "--message" && "$1" != "-a" && "$1" != "--amend" && "$1" != "" ]]; do
+                    init_args+=("$1")
+                    shift
+                done
+                git_init "${init_args[@]}"
                 continue ;;
             -m|--message)
                 if [[ ! -n "$2" || "$2" =~ ^- ]]; then
                     prompt_commit
-                    if [[ "$commit" == "" ]]; then
+                    if [[ "$message" == "" ]]; then
                         continue
                     else
                         shift
@@ -1281,13 +1283,25 @@ function git_commit() {
                 exit 1 ;;
         esac
     done
-    while [[ ! -n "$message" ]]; do
-        prompt_commit
-    done
     if [[ ! -d "$WORKING_DIRECTORY/.my_git" ]]; then
         echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
         exit 1
     fi
+    if [[ $amend_flag == true ]]; then
+        last_line_of_git_log=1
+        total_lines=$(wc -l "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d " " -f 1)
+        while [[ "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" =~ ^[[:space:]]*$ && $last_line_of_git_log -le $total_lines ]]; do
+            let last_line_of_git_log++
+        done
+        if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3) ]]; then
+            amend_flag=false
+        else
+            message=$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3)
+        fi
+    fi
+    while [[ ! -n "$message" ]]; do
+        prompt_commit
+    done
     hash=""
     for i in {1..16}; do
         hash+=$(echo "obase=16;$RANDOM%16" | bc)
@@ -1299,6 +1313,12 @@ function git_commit() {
     # done
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"
     cp "${quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    if [[ $amend_flag ]]; then
+        # If amend_flag is passed, I want to overwrite the last commit
+        # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
+        head -n -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
+    fi
     echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
 }
 
