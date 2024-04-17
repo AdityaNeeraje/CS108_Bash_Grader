@@ -1219,13 +1219,26 @@ function git_init() {
 }
 
 function prompt_commit() {
+    commit_data=""
     if [[ $number_of_prompts -eq 0 ]]; then
         echo -e "${NON_FATAL_ERROR}${BOLD}I know git commits get less informative over time, but I need something from you${NORMAL}"
     fi
-    commit_data=$(curl https://whatthecommit.com/ 2>&1)
-    commit_data="${commit_data#*<p>}"
-    commit_data="${commit_data%%</p>*}"
-    echo -e "\n${INFO}${BOLD}Here's a sample commit from https://whatthecommit.com/:\n$commit_data${NORMAL}"
+    if [[ ! -n "${used_commits["Saksham is a great TA!"]}" && ! -n "$(grep "Saksham is a great TA!" "$WORKING_DIRECTORY/.my_git/.git_log")" && $(($RANDOM%5)) -eq 0 ]]; then
+        commit_data="Saksham is a great TA!"
+        used_commits["$commit_data"]=1
+    else
+        while [[ ! -n "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" "$WORKING_DIRECTORY/.my_git/.git_log") ]]; do
+            commit_data=$(curl https://whatthecommit.com/ 2>&1)
+            commit_data="${commit_data#*<p>}"
+            commit_data="${commit_data%%</p>*}"
+        done
+        used_commits["$commit_data"]=1
+    fi
+    echo -e "\n${INFO}${BOLD}Here's a sample commit from https://whatthecommit.com/, customized to never repeat:"
+    if [[ "$commit_data" == "Saksham is a great TA!" ]]; then
+        echo -e "You found an Easter egg. Here is an interesting commit:"
+    fi
+    echo -e "$commit_data${NORMAL}"
     read -t 10 -p "Enter your own commit or press the up arrow or w to use the above commit:" commit
     if [[ "$commit" == "" ]]; then
         let number_of_prompts++
@@ -1244,8 +1257,37 @@ function prompt_commit() {
     fi
 }
 
+function parse_gitignore() {
+    IFS=
+    readarray -r -d '' total_files < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
+    if [[ -f "$WORKING_DIRECTORY/.my_gitignore" ]]; then
+        readarray -t ignore_files < <(grep -v "^$" "$WORKING_DIRECTORY/.my_gitignore")        
+        for file_regex in "${ignore_files[@]}"; do
+            if [[ "$file_regex" =~ ^! ]]; then
+                file_regex=${file_regex:1}
+                file_regex=${file_regex## }
+                file_regex=${file_regex%% }
+                for quiz in "${total_files[@]}"; do
+                    if [[ "${quiz#$WORKING_DIRECTORY}" =~ ${file_regex:1} ]]; then
+                        selected_quizzes=("${selected_quizzes[@]/$quiz}")
+                        selected_quizzes+=("$quiz")
+                    fi
+                done
+            else
+                file_regex=${file_regex## }
+                file_regex=${file_regex%% }
+                for quiz in "${selected_quizzes[@]}"; do
+                    if [[ "${quiz#$WORKING_DIRECTORY}" =~ $file_regex ]]; then
+                        selected_quizzes=("${selected_quizzes[@]/$quiz}")
+                    fi
+                done
+            fi
+        done
+    fi
+}
+
 function git_commit() {
-    getopt -o i:maf --long init:,message,amend,force -- "$@" > /dev/null 
+    getopt -o i:ma --long init:,message,amend -- "$@" > /dev/null 
     number_of_prompts=0
     amend_flag=false
     while [[ "$#" -gt 0 ]]; do
@@ -1266,6 +1308,7 @@ function git_commit() {
                 continue ;;
             -m|--message)
                 if [[ ! -n "$2" || "$2" =~ ^- ]]; then
+                    declare -A used_commits=();
                     prompt_commit
                     if [[ "$message" == "" ]]; then
                         continue
@@ -1293,13 +1336,14 @@ function git_commit() {
         while [[ "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" =~ ^[[:space:]]*$ && $last_line_of_git_log -le $total_lines ]]; do
             let last_line_of_git_log++
         done
-        if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3) ]]; then
+        if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1 | cut -d ',' -f 3) ]]; then
             amend_flag=false
-        else
+        elif [[ ! -n "$message" ]]; then
             message=$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3)
         fi
     fi
     while [[ ! -n "$message" ]]; do
+        declare -A used_commits=()
         prompt_commit
     done
     hash=""
@@ -1308,12 +1352,14 @@ function git_commit() {
     done
     ### TODO Add gitignore functionality. Decide which files to copy
     readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
-    # if [[ -f "$WORKING_DIRECTORY/.gitignore" ]]; do
-
-    # done
+    declare -a selected_quizzes=()
+    for quiz in "${quizzes[@]}"; do
+        selected_quizzes+=("$quiz")
+    done
+    parse_gitignore
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"
-    cp "${quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
-    if [[ $amend_flag ]]; then
+    cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    if [[ $amend_flag == true ]]; then
         # If amend_flag is passed, I want to overwrite the last commit
         # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
         head -n -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
@@ -1322,9 +1368,60 @@ function git_commit() {
     echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
 }
 
-function git_log() {
-    pass
+function git_status() {
+    echo "On branch main"
+    echo "Quizzes that are being considered in main.csv:"
+    readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
+    declare -a selected_quizzes=()
+    for quiz in "${quizzes[@]}"; do
+        selected_quizzes+=("$quiz")
+    done
+    parse_gitignore
+    echo -en "${INFO}${BOLD}"
+    for file in "${selected_quizzes[@]}"; do
+        if [[ -n "$file" ]]; then
+            echo "$file"
+            quizzes=("${quizzes[@]/$file}")
+        fi
+    done
+    echo -en "${NORMAL}"
+    echo -e "\nThe following files are not being tracked. Modify the .my_gitignore file to start tracking them."
+    echo -en "${ERROR}"
+    for file in "${quizzes[@]}"; do
+        if [[ -n "$file" ]]; then
+            echo "$file"
+        fi
+    done
+    echo -en "${NORMAL}"
 }
+
+function git_add() {
+    # Note that here, git_add with . or * as an argument simply replaces the content of .my_gitignore with ! of every csv file in the directory
+    if [[ "$1" == "." || "$1" == "*" ]]; then
+        echo "" > "$WORKING_DIRECTORY/.my_gitignore"
+        while IFS= read -r -d '' file; do
+            echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
+        exit
+    fi
+    while [[ "$#" -gt 0 ]]; do
+        if [[ "$1" == "help" ]]; then
+            echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+            echo -e "${INFO}${BOLD}bash grader.sh git_add [FILENAMES]${NORMAL}"
+            echo -e "${INFO}${BOLD}Options:${NORMAL}"
+            echo -e "${INFO}${BOLD}. or *, Erases .my_gitignore and ensures all csv files in the directory are copied.${NORMAL}"
+            echo -e "${INFO}${BOLD}Example: bash grader.sh git_add quiz_in_which_I_did_well.csv${NORMAL}"
+            exit 0
+            exit
+        fi
+        file="$(realpath --relative-to "$WORKING_DIRECTORY" "$1")"
+        echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        shift
+    done
+}
+# function git_log() {
+
+# }
 
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
@@ -1379,6 +1476,12 @@ function main() {
     elif [[ "$1" == "git_commit" ]]; then
         shift;
         git_commit "$@"
+    elif [[ "$1" == "git_status" ]]; then
+        shift;
+        git_status "$@"
+    elif [[ "$1" == "git_add" ]]; then
+        shift;
+        git_add "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
