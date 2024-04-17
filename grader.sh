@@ -1188,25 +1188,24 @@ function git_init() {
             directory="${directory#*/}"
         done
     else
-        directory="${directory##\./}"
-        final_directory=$(realpath "$WORKING_DIRECTORY")
+        directory="${directory##\./}" # First iteration -> directory = Aditya/
+        final_directory=$(realpath "$WORKING_DIRECTORY") # final_directory = PWD
         if [[ "${final_directory: -1:1}" != "/" ]]; then
-            final_directory+="/"
+            final_directory+="/" # final_directory = PWD/
         fi
         while [[ -n "$directory" ]]; do
-            mkdir "$final_directory${directory%%/*}" 2>"$WORKING_DIRECTORY/.git_log"
+            mkdir "$final_directory${directory%%/*}" 2>"$WORKING_DIRECTORY/.git_log" # mkdir PWD/Aditya
             if [[ ! -d "$final_directory${directory%%/*}" ]]; then
                 echo -e "${ERROR}${BOLD}Unable to create the final directory. Please check the .git_log file in $WORKING_DIRECTORY. Exiting...${NORMAL}"
                 exit 1
             fi
-            final_directory=$(realpath "$final_directory${directory%%/*}/")
-            if [[ "${final_directory: -1:1}" != "/" ]]; then
+            final_directory=$(realpath "$final_directory${directory%%/*}/") 
+            if [[ "${final_directory: -1:1}" != "/" ]]; then # final_directory = PWD/Aditya/
                 final_directory+="/"
             fi
             directory="${directory#*/}"
         done
     fi
-    echo "$final_directory"
     if [[ ! -d "$final_directory" ]]; then
         echo -e "${ERROR}${BOLD}Unable to create the final directory. Please check the .git_log file in $WORKING_DIRECTORY. Exiting...${NORMAL}"
         exit 1
@@ -1215,6 +1214,7 @@ function git_init() {
         echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
         exit 1
     fi
+    rm "$WORKING_DIRECTORY/.my_git"
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
 }
 
@@ -1259,7 +1259,7 @@ function prompt_commit() {
 
 function parse_gitignore() {
     IFS=
-    readarray -r -d '' total_files < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
+    readarray -d '' total_files < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
     if [[ -f "$WORKING_DIRECTORY/.my_gitignore" ]]; then
         readarray -t ignore_files < <(grep -v "^$" "$WORKING_DIRECTORY/.my_gitignore")        
         for file_regex in "${ignore_files[@]}"; do
