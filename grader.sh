@@ -1376,6 +1376,9 @@ function main() {
     elif [[ "$1" == "git_commit" ]]; then
         shift;
         git_commit "$@"
+    elif [[ "$1" == "git_commit" ]]; then
+        shift;
+        git_commit "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
