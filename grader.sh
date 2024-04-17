@@ -1143,6 +1143,13 @@ function git_init() {
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
+    if [[ -f "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}Git repository already initialized.${NORMAL}"
+        read -t 10 -p "Do you want to reinitialize the git repository? (y/n): " answer
+        if [[ "$answer" != "y" ]]; then
+            exit 1
+        fi
+    fi
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
@@ -1212,6 +1219,10 @@ function git_init() {
     fi
     if [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") == "." ]]; then
         echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
+        exit 1
+    elif [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") =~ [^/]*.csv ]]; then
+        echo -e "${ERROR}${BOLD}Please do not make the remote repository a filename terminated with .csv if you are using the working repository. This could result in unintended functioning of git_commit${NORMAL}"
+        rmdir "$final_directory"
         exit 1
     fi
     rm "$WORKING_DIRECTORY/.my_git"
@@ -1423,6 +1434,94 @@ function git_add() {
 
 # }
 
+function display_boxplot() {
+    getopt -o r --long rescale -- "$@" > /dev/null
+    rescale_value=0
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -r|--rescale) 
+                shift;
+                if [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    rescale_value="$1"
+                    shift
+                else
+                    rescale_value=100
+                fi
+                continue ;;
+            *)
+                echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                shift; continue ;;
+        esac
+    done
+    python3 - "$WORKING_DIRECTORY" "$rescale_value" << EOF
+import plotly.express as px
+import numpy as np
+import sys
+working_directory=sys.argv[1]
+rescale_value=float(sys.argv[2])
+with open(f"{working_directory}/main.csv") as file:
+    data=file.readlines()
+    quizzes=data[0].strip().split(",")[2:]
+    scores=np.array([[float(score) if score != "a" else 0 for score in line.strip().split(",")[2:]] for line in data[1:]],dtype="float64")
+    if rescale_value != 0:
+        scores*=1/np.max(scores, axis=0)
+        scores*=rescale_value
+    fig=px.box(y=list(scores), x=list(quizzes), title="Boxplot of scores", color=quizzes)
+    fig.update_xaxes(title_text='Quizzes')
+    fig.update_yaxes(title_text='Scores')
+    fig.update_layout(
+    title_font=dict(size=20, family='Arial', color='blue'),
+    xaxis=dict(title_font=dict(size=16, family='Arial', color='green')),
+    yaxis=dict(title_font=dict(size=16, family='Arial', color='red')),
+    )
+    fig.show()
+EOF
+}
+
+function display_stripplot() {
+    getopt -o r --long rescale -- "$@" > /dev/null
+    rescale_value=0
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -r|--rescale) 
+                shift;
+                if [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    rescale_value="$1"
+                    shift
+                else
+                    rescale_value=100
+                fi
+                continue ;;
+            *)
+                echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                shift; continue ;;
+        esac
+    done
+    python3 - "$WORKING_DIRECTORY" "$rescale_value" << EOF
+import plotly.express as px
+import numpy as np
+import sys
+working_directory=sys.argv[1]
+rescale_value=float(sys.argv[2])
+with open(f"{working_directory}/main.csv") as file:
+    data=file.readlines()
+    quizzes=data[0].strip().split(",")[2:]
+    scores=np.array([[float(score) if score != "a" else 0 for score in line.strip().split(",")[2:]] for line in data[1:]],dtype="float64")
+    if rescale_value != 0:
+        scores*=1/np.max(scores, axis=0)
+        scores*=rescale_value
+    fig=px.strip(y=list(scores), x=list(quizzes), title="Boxplot of scores", color=quizzes)
+    fig.update_xaxes(title_text='Quizzes')
+    fig.update_yaxes(title_text='Scores')
+    fig.update_layout(
+    title_font=dict(size=20, family='Arial', color='blue'),
+    xaxis=dict(title_font=dict(size=16, family='Arial', color='green')),
+    yaxis=dict(title_font=dict(size=16, family='Arial', color='red')),
+    )
+    fig.show()
+EOF
+}
+
 function main() {
     # The code below finds the absolute path of the working directory. In an essence, it is the equivalent of using the realpath command
     # but I wanted to implement it myself (or maybe I didn't know about realpath at the time of writing this code :) :) :)
@@ -1482,6 +1581,12 @@ function main() {
     elif [[ "$1" == "git_add" ]]; then
         shift;
         git_add "$@"
+    elif [[ "$1" == "boxplot" ]]; then
+        shift;
+        display_boxplot "$@"
+    elif [[ "$1" == "stripplot" ]]; then
+        shift;
+        display_stripplot "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
