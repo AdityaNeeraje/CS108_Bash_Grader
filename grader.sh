@@ -37,7 +37,7 @@ function combine(){
                 drop_flag=true;
                 drop_quizzes="";
                 shift;
-                while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                while [[ ! "$1" =~ ^- ]] && [[ "$1" != "help" && "$1" != "" ]]; do
                     ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
                     ### If absolute path, store the relative path in $1
                     if [ ! -f "$(realpath "$1")" ]; then 
@@ -56,7 +56,7 @@ function combine(){
             -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
             *)
                 if [[ $starting_args == true ]]; then
-                    while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                    while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
                         if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
                             echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                         fi
@@ -726,7 +726,7 @@ function percentile() {
             }
             NR == 1 {
                 for (i in ARRAY){
-                    if (!(ARRAY[i] ~ /^[[:space:]]*a[[:space:]]*$/) && !($(i+2) ~ /Total/) && !($(i+2) ~ /Mean/)) {
+                    if (!(ARRAY[i] ~ /^[[:space:]]*a[[:space:]]*$/) && !($(i+2) ~ /Total/ || $(i+2) ~ /Mean/)) {
                         quizzes[i+2]=$(i+2)
                     }
                     else if (ARRAY[i] ~ /^a$/){
@@ -881,7 +881,7 @@ function total() {
                 drop_flag=true;
                 drop_quizzes="";
                 shift;
-                while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
                     ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
                     ### If absolute path, store the relative path in $1
                     if [ ! -f "$(realpath "$1")" ]; then 
@@ -900,7 +900,7 @@ function total() {
             -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
             *)
                 if [[ $starting_args == true ]]; then
-                    while [[ ! "$1" =~ ^- && ! "$1" == "help" && ! "$1" == "" ]]; do
+                    while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
                         if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
                             echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                         fi
@@ -973,7 +973,7 @@ function total() {
             ending_found=false
             total_column=NF+1
             for (i = 3; i <= NF; i++){
-                if (!ending_found && !($i ~ /^Total$/) && !($i ~ /^Mean$/)){
+                if (!(ending_found) && !($i ~ /^Total$/) && !($i ~ /^Mean$/))){
                     ending=i
                 }
                 else {
@@ -1021,7 +1021,7 @@ function update() {
         fi
         final_roll_number=$(query "$roll_number" -u)
         student_name=$(grep -m 1 -i "$final_roll_number" "$WORKING_DIRECTORY/main.csv" | cut -d ',' -f 2)
-        if [[ ${final_roll_number,,} != ${roll_number,,} ]]; then
+        if [[ "${final_roll_number,,}" != "${roll_number,,}" ]]; then
             read -t 5 -p "Did you mean $final_roll_number, $student_name? (y/n): " answer
             if [[ ! ("$answer" == "y") ]]; then
                 continue
@@ -1138,34 +1138,40 @@ function update() {
 }
 
 function git_init() {
-    getopt -o f --long force -- "$@" > /dev/null
+    getopt -o fv --long force,verbose -- "$@" > /dev/null
+    force_flag=false
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
-    if [[ -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -v|--verbose)
+                verbose_flag="-v"
+                shift;
+                continue ;;
+            -f|--force) 
+                force_flag=true
+                # rm "$WORKING_DIRECTORY/.my_git"
+                shift ;
+                continue ;;
+            *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh git_init [DIRECTORY]${NORMAL}"
+                    echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                    echo -e "${INFO}${BOLD}-f, --force${NORMAL} Forcefully reinitializes the git repository${NORMAL}"
+                    echo -e "${INFO}${BOLD}Example: bash grader.sh git_init ~/Documents/Grader${NORMAL}"
+                    exit
+                fi
+                directory="$1"; shift; continue ;;
+        esac
+    done
+    if [[ $force_flag==false && -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
         echo -e "${ERROR}${BOLD}Git repository already initialized.${NORMAL}"
         read -t 10 -p "Do you want to reinitialize the git repository? (y/n): " answer
         if [[ "$answer" != "y" ]]; then
             exit 1
         fi
-    fi
-    while [[ "$#" -gt 0 ]]; do
-        case "$1" in 
-            -f|--force) 
-                rm "$WORKING_DIRECTORY/.my_git"
-                shift ;
-                continue ;;
-            *)
-                directory="$1"; shift; continue ;;
-        esac
-    done
-    if [[ "$1" == "help" ]]; then
-        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
-        echo -e "${INFO}${BOLD}bash grader.sh git_init [DIRECTORY]${NORMAL}"
-        echo -e "${INFO}${BOLD}Options:${NORMAL}"
-        echo -e "${INFO}${BOLD}-f, --force${NORMAL} Forcefully reinitializes the git repository${NORMAL}"
-        echo -e "${INFO}${BOLD}Example: bash grader.sh git_init ~/Documents/Grader${NORMAL}"
-        exit 0
     fi
     if [[ "$directory" == "" ]]; then
         echo -e "${ERROR}${BOLD}No directory specified. Exiting...${NORMAL}"
@@ -1219,12 +1225,28 @@ function git_init() {
     if [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") == "." ]]; then
         echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
         exit 1
+    elif [[ "$(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_git" || "$(realpath --realtive-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_gitignore" ]]; then
+        echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
+        rmdir "$WORKING_DIRECTORY/.my_gitignore/" 2> /dev/null
+        exit 1
     elif [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") =~ [^/]*.csv ]]; then
         echo -e "${ERROR}${BOLD}Please do not make the remote repository a filename terminated with .csv if you are using the working repository. This could result in unintended functioning of git_commit${NORMAL}"
         rmdir "$final_directory"
         exit 1
     fi
-    rm "$WORKING_DIRECTORY/.my_git"
+    if [[ -h "$WORKING_DIRECTORY/.my_git" && -n "$(cat "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+        while read -r line; do
+            if [[ -z "$line" ]]; then
+                continue
+            fi
+            line="$(echo "$line" | cut -d ',' -f 1)"
+            echo $line
+            if [[ -d "$WORKING_DIRECTORY/.my_git/$line" ]]; then
+                cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory"
+            fi
+        done < "$WORKING_DIRECTORY/.my_git/.git_log"
+        rm "$WORKING_DIRECTORY/.my_git"
+    fi    
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
     grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
@@ -1236,11 +1258,15 @@ function prompt_commit() {
     if [[ $number_of_prompts -eq 0 ]]; then
         echo -e "${NON_FATAL_ERROR}${BOLD}I know git commits get less informative over time, but I need something from you${NORMAL}"
     fi
-    if [[ ! -n "${used_commits["Saksham is a great TA!"]}" && ! -n "$(grep "Saksham is a great TA!" "$WORKING_DIRECTORY/.my_git/.git_log")" && $(($RANDOM%5)) -eq 0 ]]; then
-        commit_data="Saksham is a great TA!"
-        used_commits["$commit_data"]=1
+    if [[ -z "${used_commits["Saksham is a great TA!"]}" && -z "$(grep "Saksham is a great TA!" "$WORKING_DIRECTORY/.my_git/.git_log")" && $(($RANDOM%5)) -eq 0 ]]; then
+        commit_data="Saksham is a great TA!\n"
+        used_commits["Saksham is a great TA!"]=1
+    elif [[ "$((RANDOM%20))" -eq 0 ]]; then
+        name=("Guramrit" "Kavya" "Sabyasachi")
+        random_name=${name[$((RANDOM%3))]}
+        commit_data="$random_name is the best TA!\n"
     else
-        while [[ ! -n "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" < <(tail -n 10 "$WORKING_DIRECTORY/.my_git/.git_log")) ]]; do
+        while [[ -z "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" < <(tail -n 10 "$WORKING_DIRECTORY/.my_git/.git_log")) ]]; do
             commit_data=$(curl https://whatthecommit.com/ 2>&1)
             commit_data="${commit_data#*<p>}"
             commit_data="${commit_data%%</p>*}"
@@ -1320,7 +1346,7 @@ function git_commit() {
                 git_init "${init_args[@]}"
                 continue ;;
             -m|--message)
-                if [[ ! -n "$2" || "$2" =~ ^- ]]; then
+                if [[ -z "$2" || "$2" =~ ^- ]]; then
                     declare -A used_commits=();
                     prompt_commit
                     if [[ "$message" == "" ]]; then
@@ -1348,12 +1374,12 @@ function git_commit() {
     while [[ "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" =~ ^[[:space:]]*$ && $last_line_of_git_log -le $total_lines ]]; do
         let last_line_of_git_log++
     done
-    if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1 | cut -d ',' -f 3) ]]; then
+    if [[ $last_line_of_git_log -gt $total_lines || -z $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1 | cut -d ',' -f 3) ]]; then
         amend_flag=false
-    elif [[ ! -n "$message" && $amend_flag == true ]]; then
+    elif [[ -z "$message" && $amend_flag == true ]]; then
         message=$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3)
     fi
-    while [[ ! -n "$message" ]]; do
+    while [[ -z "$message" ]]; do
         declare -A used_commits=()
         prompt_commit
     done
@@ -1533,8 +1559,15 @@ function git_checkout() {
         echo -e "${ERROR}${BOLD}A commit hash of sufficient length (>=4) has not been provided. Exiting...${NORMAL}"
         exit 1
     fi
-    readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
-    commits=("${commits[@]/.my_git}")
+    declare -a commits=()
+    while read -r line; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+        commits+=("$(echo "$line" | cut -d ',' -f 1)")
+    done < "$WORKING_DIRECTORY/.my_git/.git_log"
+    # readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
+    # commits=("${commits[@]/.my_git}")
     commit_found=false
     min_distance=100000
     for commit in "${commits[@]}"; do
@@ -1544,7 +1577,7 @@ function git_checkout() {
         if [[ "$commit" =~ ^$commit_hash ]]; then
             commit_found=true
             data="$(git_diff "$commit")"    
-            if [[ -n "$data" && ! $force_flag==true ]]; then
+            if [[ -n "$data" && $force_flag!=true ]]; then
                 echo "$data"         
                 echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
                 read -t 10 -p "Do you want to commit? (y/n): " answer
@@ -1573,7 +1606,7 @@ function git_checkout() {
         fi
         commit="$closest_commit"
         data="$(git_diff "$commit")"    
-        if [[ -n "$data" && ! $force_flag==true ]]; then
+        if [[ -n "$data" && $force_flag!=true ]]; then
             echo "$data"         
             echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
             read -t 10 -p "Do you want to commit? (y/n): " answer
@@ -1661,9 +1694,29 @@ plt.show()
 EOF
 }
 
-# function git_log() {
-
-# }
+function git_log() {
+    if [[ ! -h "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
+        exit 1
+    fi
+    if [[ -z $(cat "$WORKING_DIRECTORY/.my_git/.git_log") ]]; then
+        echo -e "${ERROR}${BOLD}No commits found. Exiting...${NORMAL}"
+        exit 1
+    fi
+    awk '
+    BEGIN {
+        FS=","
+    }
+    /^[[:space:]]*$/ {
+        next
+    }
+    {
+        print "Commit Hash: " $1
+        print "Commit Time: " strftime("%c", $2)
+        print "Commit Message: " $3
+        print ""
+    }' "$WORKING_DIRECTORY/.my_git/.git_log"
+}
 
 function display_boxplot() {
     getopt -o r --long rescale -- "$@" > /dev/null
@@ -1944,6 +1997,9 @@ function main() {
     elif [[ "$1" == "git_checkout" ]]; then
         shift;
         git_checkout "$@"
+    elif [[ "$1" == "git_log" ]]; then
+        shift;
+        git_log "$@"
     elif [[ "$1" == "grade" ]]; then
         shift;
         grade "$@"
