@@ -1238,7 +1238,7 @@ function prompt_commit() {
         commit_data="Saksham is a great TA!"
         used_commits["$commit_data"]=1
     else
-        while [[ ! -n "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" "$WORKING_DIRECTORY/.my_git/.git_log") ]]; do
+        while [[ ! -n "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" < <(tail -n 10 "$WORKING_DIRECTORY/.my_git/.git_log")) ]]; do
             commit_data=$(curl https://whatthecommit.com/ 2>&1)
             commit_data="${commit_data#*<p>}"
             commit_data="${commit_data%%</p>*}"
@@ -1341,17 +1341,15 @@ function git_commit() {
         echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
         exit 1
     fi
-    if [[ $amend_flag == true ]]; then
-        last_line_of_git_log=1
-        total_lines=$(wc -l "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d " " -f 1)
-        while [[ "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" =~ ^[[:space:]]*$ && $last_line_of_git_log -le $total_lines ]]; do
-            let last_line_of_git_log++
-        done
-        if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1 | cut -d ',' -f 3) ]]; then
-            amend_flag=false
-        elif [[ ! -n "$message" ]]; then
-            message=$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3)
-        fi
+    last_line_of_git_log=1
+    total_lines=$(wc -l "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d " " -f 1)
+    while [[ "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" =~ ^[[:space:]]*$ && $last_line_of_git_log -le $total_lines ]]; do
+        let last_line_of_git_log++
+    done
+    if [[ $last_line_of_git_log -gt $total_lines || ! -n $(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1 | cut -d ',' -f 3) ]]; then
+        amend_flag=false
+    elif [[ ! -n "$message" && $amend_flag == true ]]; then
+        message=$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 3)
     fi
     while [[ ! -n "$message" ]]; do
         declare -A used_commits=()
@@ -1375,6 +1373,9 @@ function git_commit() {
         # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
         head -n -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
+    fi
+    if [[ -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+        git_diff "$previous_hash" "$hash"
     fi
     echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
 }
@@ -1408,19 +1409,30 @@ function git_status() {
 
 function git_add() {
     # Note that here, git_add with . or * as an argument simply replaces the content of .my_gitignore with ! of every csv file in the directory
-    if [[ "$1" == "." || "$1" == "*" ]]; then
-        echo "" > "$WORKING_DIRECTORY/.my_gitignore"
-        while IFS= read -r -d '' file; do
-            echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
-        done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
-        exit
-    fi
+    remove_flag=false
+    getopt -o r --long remove -- "$@" > /dev/null
+    line_start=$(wc -l "$WORKING_DIRECTORY/.my_gitignore" | cut -d " " -f 1)
+    let line_start++
     while [[ "$#" -gt 0 ]]; do
+        if [[ "$1" == "-r" ]]; then
+            remove_flag=true
+            sed -i "$line_start,$ s/^!//" "$WORKING_DIRECTORY/.my_gitignore"
+            shift
+            continue
+        fi
+        if [[ "$1" == "." || "$1" == "*" ]]; then
+            echo "" > "$WORKING_DIRECTORY/.my_gitignore"
+            while IFS= read -r -d '' file; do
+                echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+            done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
+            exit
+        fi
         if [[ "$1" == "help" ]]; then
             echo -e "${INFO}${BOLD}Usage..${NORMAL}"
             echo -e "${INFO}${BOLD}bash grader.sh git_add [FILENAMES]${NORMAL}"
             echo -e "${INFO}${BOLD}Options:${NORMAL}"
             echo -e "${INFO}${BOLD}. or *, Erases .my_gitignore and ensures all csv files in the directory are copied.${NORMAL}"
+            echo -e "${INFO}${BOLD}-r --remove. Ensures the specified files are never committed by adding them to .my_gitignore${NORMAL}"
             echo -e "${INFO}${BOLD}Example: bash grader.sh git_add quiz_in_which_I_did_well.csv${NORMAL}"
             exit 0
             exit
@@ -1430,6 +1442,101 @@ function git_add() {
         shift
     done
 }
+
+function git_remove() {
+    git_add -r "$@"
+}
+
+function git_diff() {
+    # By implementation, we can assert that $1 and $2 are two unique commit hashes or $1 is the previous commit hash and $2 is empty (current working directory)
+    prev_hash="$1"
+    hash="${2:-../}"
+    prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
+    new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
+    while read -d "~" -r line; do
+        if [[ ! "~$new_files" =~ ~${line}~ ]]; then
+            echo "The following file has been removed from the repository: $line" # No longer present in the new hash
+        elif [[ -n $(diff "$WORKING_DIRECTORY/.my_git/$hash/$line" "$WORKING_DIRECTORY/.my_git/$prev_hash" ) ]]; then
+            echo "The following file has been modified in the repository: $line" # Modified in the new hash
+        fi
+    done <<< "$prev_files"
+    if [[ "$hash" == "../" ]]; then # I am going to use $3 as a flag for checking new_stuff 
+        return
+    fi
+    while read -d "~" -r line; do
+        if [[ ! "~$prev_files" =~ ~${line}~ ]]; then
+            echo "The following file has been added to the repository: $line" # Was not present in the previous hash
+        fi
+    done <<< "$new_files"
+}
+
+function git_checkout() {
+    # Here are the flags I want -> a verbosity flag for copy, a force flag to not prompt to commit current changes
+    getopt -o vf --long verbose,force -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    force_flag=false
+    starting_args=true
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -v|--verbose)
+                starting_args=false 
+                verbose_flag="-v"
+                shift
+                continue ;;
+            -f|--force)
+                starting_args=false 
+                force_flag=true
+                shift
+                continue ;;
+            *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh git_checkout [COMMIT_HASH]${NORMAL}"
+                    echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                    echo -e "${INFO}${BOLD}-v, --verbose${NORMAL} Verbosely copy the files${NORMAL}"
+                    echo -e "${INFO}${BOLD}-f, --force${NORMAL} Forcefully checkout the commit without checking for changes${NORMAL}"
+                    echo -e "${INFO}${BOLD}Example: bash grader.sh git_checkout 1234${NORMAL}"
+                    exit 0
+                fi
+                if [[ $starting_args == true ]]; then
+                    ### Note: Here, since we can only have one argument for commit_hash, we can safely assume that the first argument is the commit hash
+                    starting_args=false
+                    commit_hash="$1"
+                    shift
+                    continue
+                fi
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                shift; continue;;
+        esac
+    done
+    if [[ "$commit_hash" == "" || "${#commit_hash}" -lt 4 ]]; then
+        echo -e "${ERROR}${BOLD}A commit hash of sufficient length (>=4) has not been provided. Exiting...${NORMAL}"
+        exit 1
+    fi
+    readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
+    for commit in "${commits[@]}"; do
+        if [[ "$commit" =~ ^$commit_hash ]]; then
+            data="$(git_diff "$commit")"    
+            if [[ -n "$data" && ! $force_flag==true ]]; then
+                echo "$data"         
+                echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
+                read -t 10 -p "Do you want to commit? (y/n): " answer
+                if [[ "$answer" == "y" ]]; then
+                    ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
+                    git_commit ### TODO What arguments to pass here
+                else
+                    exit 1
+                fi   
+            fi
+            break
+        fi
+    done
+    ### TODO Copy now
+    find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+}
+
 # function git_log() {
 
 # }
@@ -1698,6 +1805,9 @@ function main() {
     elif [[ "$1" == "git_add" ]]; then
         shift;
         git_add "$@"
+    elif [[ "$1" == "git_remove" ]]; then
+        shift;
+        git_remove "$@"
     elif [[ "$1" == "boxplot" ]]; then
         shift;
         display_boxplot "$@"
@@ -1707,6 +1817,9 @@ function main() {
     elif [[ "$1" == "describe" ]]; then
         shift;
         describe "$@"
+    elif [[ "$1" == "git_checkout" ]]; then
+        shift;
+        git_checkout "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
