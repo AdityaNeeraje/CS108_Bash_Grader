@@ -9,7 +9,6 @@ INFO='\033[0;32m'
 FILLED_BLOCK='\u2588'
 DOTTED_BLOCK='\u2591'
 
-dont_combine_flag=false
 force_flag=false
 drop_flag=false
 WORKING_DIRECTORY=$PWD
@@ -400,12 +399,12 @@ function levenshtein() {
     ### Algorithm translated to bash from C++ algorithm found at https://www.geeksforgeeks.org/introduction-to-levenshtein-distance/
     name1="${1,,}"
     name2="${2,,}"
-    if [[ ${#name1} -eq 0 ]]; then
-        echo ${#name2}
+    if [[ "${#name1}" -eq 0 ]]; then
+        echo "${#name2}"
         return
     fi
-    if [[ ${#name2} -eq 0 ]]; then
-        echo ${#name1}
+    if [[ "${#name2}" -eq 0 ]]; then
+        echo "${#name1}"
         return
     fi
     words_in_name_1=(${name1// / }) # The usage of this function should be such that name1 is the query by the user and name2 is the existing name
@@ -446,14 +445,14 @@ function levenshtein() {
                 if [[ $minimum -gt ${prevRow[$((j - 1))]} ]]; then # Replacement
                     minimum=${prevRow[$((j - 1))]}
                 fi
-                currRow[$j]=$(($minimum+1))
+                currRow[$j]=$((minimum+1))
             fi
         done
-        if [[ $minimum -gt $((APPROXIMATION_DISTANCE+1)) ]]; then
-            echo $minimum
-            return
-        fi
-        prevRow=("${currRow[@]}")
+        prevRow=()
+        for element in "${currRow[@]}"; do
+            prevRow+=($element)
+        done
+        # prevRow=("${currRow[@]}")
     done
     echo ${currRow[$((n-1))]}
     return
@@ -1143,7 +1142,7 @@ function git_init() {
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
-    if [[ -f "$WORKING_DIRECTORY/.my_git" ]]; then
+    if [[ -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
         echo -e "${ERROR}${BOLD}Git repository already initialized.${NORMAL}"
         read -t 10 -p "Do you want to reinitialize the git repository? (y/n): " answer
         if [[ "$answer" != "y" ]]; then
@@ -1227,6 +1226,9 @@ function git_init() {
     fi
     rm "$WORKING_DIRECTORY/.my_git"
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
+    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
 }
 
 function prompt_commit() {
@@ -1368,6 +1370,7 @@ function git_commit() {
     parse_gitignore
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"
     cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    previous_hash=$(tail -n $last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
     if [[ $amend_flag == true ]]; then
         # If amend_flag is passed, I want to overwrite the last commit
         # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
@@ -1378,6 +1381,9 @@ function git_commit() {
         git_diff "$previous_hash" "$hash"
     fi
     echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
 }
 
 function git_status() {
@@ -1450,9 +1456,14 @@ function git_remove() {
 function git_diff() {
     # By implementation, we can assert that $1 and $2 are two unique commit hashes or $1 is the previous commit hash and $2 is empty (current working directory)
     prev_hash="$1"
-    hash="${2:-../}"
+    if [[ ! -n "$2" ]]; then
+        hash="../"
+    else
+        hash="$2"
+    fi
     prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
     new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
+    echo "$new_files"
     while read -d "~" -r line; do
         if [[ ! "~$new_files" =~ ~${line}~ ]]; then
             echo "The following file has been removed from the repository: $line" # No longer present in the new hash
@@ -1475,6 +1486,13 @@ function git_checkout() {
     getopt -o vf --long verbose,force -- "$@" > /dev/null
     if [[ $? -ne 0 ]]; then
         exit 1;
+    fi
+    if [[ ! -h "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
+        exit 1
+    elif [[ ! -n $(cat "$WORKING_DIRECTORY/.my_git/.git_log") ]]; then
+        echo -e "${ERROR}${BOLD}No commits found. Exiting...${NORMAL}"
+        exit 1
     fi
     force_flag=false
     starting_args=true
@@ -1516,8 +1534,15 @@ function git_checkout() {
         exit 1
     fi
     readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
+    commits=("${commits[@]/.my_git}")
+    commit_found=false
+    min_distance=100000
     for commit in "${commits[@]}"; do
+        if [[ ! -n "$commit" ]]; then
+            continue
+        fi
         if [[ "$commit" =~ ^$commit_hash ]]; then
+            commit_found=true
             data="$(git_diff "$commit")"    
             if [[ -n "$data" && ! $force_flag==true ]]; then
                 echo "$data"         
@@ -1532,9 +1557,35 @@ function git_checkout() {
             fi
             break
         fi
+        length=${#commit_hash}
+        distance=$(levenshtein "${commit:0:$length}" "$commit_hash")
+        if [[ $distance -le $min_distance ]]; then # I'm using equality on purpose, because more recent commits are more likely the ones we want
+            min_distance="$distance"
+            closest_commit="$commit"
+        fi
     done
-    ### TODO Copy now
-    find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+    if [[ "$commit_found" == true ]]; then
+        find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+    else
+        if [[ "$min_distance" -gt "$APPROXIMATION_DISTANCE" ]]; then
+            echo -e "${ERROR}${BOLD}No commit found with the provided hash. Exiting...${NORMAL}"
+            exit 1
+        fi
+        commit="$closest_commit"
+        data="$(git_diff "$commit")"    
+        if [[ -n "$data" && ! $force_flag==true ]]; then
+            echo "$data"         
+            echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
+            read -t 10 -p "Do you want to commit? (y/n): " answer
+            if [[ "$answer" == "y" ]]; then
+                ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
+                git_commit ### TODO What arguments to pass here
+            else
+                exit 1
+            fi   
+        fi
+        find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+    fi
 }
 
 function grade() {
