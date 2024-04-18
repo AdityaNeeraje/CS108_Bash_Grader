@@ -1537,6 +1537,79 @@ function git_checkout() {
     find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
 }
 
+function grade() {
+    width_divider=4
+    readarray -t cutoffs < <(awk -v WIDTH=$width_divider '
+    BEGIN {
+        FS=","
+    }
+    NR == 1 {
+        for (i = 3; i <= NF; i++){
+            if ($i ~ /^Total$/){
+                total_column=i
+                continue
+            }
+        }
+        max_total=0
+    }
+    NR > 1 {
+        total=0
+        for (i = 3; i <= NF; i++){
+            if (i != total_column){
+                total=total+$i
+            }
+            totals[NR-1]=total
+        }
+        total_sum+=total
+        count+=1
+        max_total=total>max_total?total:max_total
+    }
+    END {
+        rescaling_factor=100/max_total
+        mean=total_sum/count
+        # buckets=[mean-30/rescaling_factor, mean-20/rescaling_factor, mean-10/rescaling_factor, mean, mean+10/rescaling_factor, mean+20/rescaling_factor, mean+30/rescaling_factor]
+        # I get a sorted array of totals
+        asort(totals, sorted_totals, "@val_num_asc")
+        ind=count
+        prev_ind=ind
+        for (bucket=mean+30/rescaling_factor; bucket >= mean-30/rescaling_factor; bucket-=10/rescaling_factor){
+            while (sorted_totals[ind] > bucket && ind > 0){
+                ind-=1
+            }
+            ind++
+            max_consecutive_diff=0
+            max_consecutive_diff_index=ind
+            width=prev_ind-ind
+            for (i = ind-int(width/WIDTH); i < (ind+int(width/WIDTH)>prev_ind?prev_ind:ind+int(width/WIDTH)); i++){
+                if (sorted_totals[i]-sorted_totals[i-1] > max_consecutive_diff){
+                    max_consecutive_diff=sorted_totals[i]-sorted_totals[i-1]
+                    max_consecutive_diff_index=i
+                }
+            }
+            prev_ind=max_consecutive_diff_index
+            print max_consecutive_diff_index
+        }
+    }
+    ' "$WORKING_DIRECTORY/main.csv")
+    python3 - "$WORKING_DIRECTORY" "${cutoffs[@]}" << EOF
+import sys
+import numpy as np
+import pandas as pd
+import random
+from matplotlib import pyplot as plt
+working_directory = sys.argv[1]
+cutoff_indices = [int(cutoff) for cutoff in sys.argv[2:]]
+data = pd.read_csv(f"{working_directory}/main.csv")
+data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
+data["total"] = (data.iloc[:,2:].astype('float64')).sum(axis=1)
+plt.scatter(np.arange(len(data)), data["total"].sort_values().values)
+plt.yticks([])
+for cutoff in cutoff_indices:
+    plt.axvline(x=cutoff-1, color='r', linestyle='--')
+plt.show()
+EOF
+}
+
 # function git_log() {
 
 # }
@@ -1820,6 +1893,9 @@ function main() {
     elif [[ "$1" == "git_checkout" ]]; then
         shift;
         git_checkout "$@"
+    elif [[ "$1" == "grade" ]]; then
+        shift;
+        grade "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
