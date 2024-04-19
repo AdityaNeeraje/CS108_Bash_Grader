@@ -9,8 +9,6 @@ INFO='\033[0;32m'
 FILLED_BLOCK='\u2588'
 DOTTED_BLOCK='\u2591'
 
-force_flag=false
-drop_flag=false
 WORKING_DIRECTORY=$PWD
 TEMPORARY_FILES=(".temp.txt" "temp.txt" "temp.ext" "temp")
 TEMPORARY_FILE=${TEMPORARY_FILES[0]}
@@ -1759,21 +1757,37 @@ function grade() {
     }
     ' "$WORKING_DIRECTORY/main.csv")
     python3 - "$WORKING_DIRECTORY" "${cutoffs[@]}" << EOF
+#TODO What if plotly is not installed? Do I begin a venv? Need to check with Saksham
 import sys
-import numpy as np
 import pandas as pd
-import random
-from matplotlib import pyplot as plt
+import plotly.express as px
+
 working_directory = sys.argv[1]
 cutoff_indices = [int(cutoff) for cutoff in sys.argv[2:]]
 data = pd.read_csv(f"{working_directory}/main.csv")
 data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
-data["total"] = (data.iloc[:,2:].astype('float64')).sum(axis=1)
-plt.scatter(np.arange(len(data)), data["total"].sort_values().values)
-plt.yticks([])
-for cutoff in cutoff_indices:
-    plt.axvline(x=cutoff-1, color='r', linestyle='--')
-plt.show()
+data["total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
+data_sorted=data.sort_values(by="total").reset_index(drop=True)
+
+grades=["AP","AA","AB","BB","BC","CC","FR"]
+data_sorted["Grade"]="AP"
+cutoff_indices=[len(data)+1]+cutoff_indices+[0]
+for i in range(1,len(cutoff_indices)):
+    data_sorted.loc[cutoff_indices[i]-1:cutoff_indices[i-1]-2, "Grade"]=grades[i-1]
+
+fig = px.scatter(data_sorted, x=range(len(data)), y="total", color="Grade",
+                 hover_data=["Name", "Roll_Number"], 
+                 labels={"total": "Total"})
+for cutoff in cutoff_indices[1:-1]:
+    fig.add_vline(x=cutoff-1, line_dash="dash", line_color="red", opacity=0.3)
+fig.update_traces(marker=dict(size=5),
+                  selector=dict(mode='markers'))
+fig.update_layout(hovermode="closest",  # Show closest point on hover
+                  xaxis_title="Index", 
+                  yaxis_title="Total",
+                  title="Scatter plot of total marks",
+                  showlegend=False)
+fig.show()
 EOF
 }
 
