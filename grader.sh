@@ -1223,14 +1223,14 @@ function git_init() {
         exit 1
     fi
     if [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") == "." ]]; then
-        echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
+        echo -e "${ERROR}${BOLD}Please don't be stupid enough to make the remote repository the current repository. Think twice before typing...${NORMAL}"
         exit 1
-    elif [[ "$(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_git" || "$(realpath --realtive-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_gitignore" ]]; then
-        echo -e "${ERROR}${BOLD}Please do not make the remote repository the same as the current repository. Exiting...${NORMAL}"
+    elif [[ "$(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_git" || "$(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory")" == ".my_gitignore" ]]; then
+        echo -e "${ERROR}${BOLD}Please don't be stupid enough to make the remote repository the .my_git file. Think twice before typing...${NORMAL}"
         rmdir "$WORKING_DIRECTORY/.my_gitignore/" 2> /dev/null
         exit 1
     elif [[ $(realpath --relative-to "$WORKING_DIRECTORY" "$final_directory") =~ [^/]*.csv ]]; then
-        echo -e "${ERROR}${BOLD}Please do not make the remote repository a filename terminated with .csv if you are using the working repository. This could result in unintended functioning of git_commit${NORMAL}"
+        echo -e "${ERROR}${BOLD}Please do not make the remote repository a filename terminated with .csv if you are using the working repository. I have a big skill issue in handling that.${NORMAL}"
         rmdir "$final_directory"
         exit 1
     fi
@@ -1240,7 +1240,6 @@ function git_init() {
                 continue
             fi
             line="$(echo "$line" | cut -d ',' -f 1)"
-            echo $line
             if [[ -d "$WORKING_DIRECTORY/.my_git/$line" ]]; then
                 cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory"
             fi
@@ -1259,12 +1258,12 @@ function prompt_commit() {
         echo -e "${NON_FATAL_ERROR}${BOLD}I know git commits get less informative over time, but I need something from you${NORMAL}"
     fi
     if [[ -z "${used_commits["Saksham is a great TA!"]}" && -z "$(grep "Saksham is a great TA!" "$WORKING_DIRECTORY/.my_git/.git_log")" && $(($RANDOM%5)) -eq 0 ]]; then
-        commit_data="Saksham is a great TA!\n"
+        commit_data="Saksham is a great TA!"
         used_commits["Saksham is a great TA!"]=1
     elif [[ "$((RANDOM%20))" -eq 0 ]]; then
         name=("Guramrit" "Kavya" "Sabyasachi")
         random_name=${name[$((RANDOM%3))]}
-        commit_data="$random_name is the best TA!\n"
+        commit_data="$random_name is the best TA!"
     else
         while [[ -z "$commit_data" || -n "${used_commits["$commit_data"]}" || $(grep -q "$commit_data" < <(tail -n 10 "$WORKING_DIRECTORY/.my_git/.git_log")) ]]; do
             commit_data=$(curl https://whatthecommit.com/ 2>&1)
@@ -1273,11 +1272,12 @@ function prompt_commit() {
         done
         used_commits["$commit_data"]=1
     fi
-    echo -e "\n${INFO}${BOLD}Here's a sample commit from https://whatthecommit.com/, customized to never repeat:"
+    echo -e "\n${INFO}${BOLD}Here's a sample commit from https://whatthecommit.com/, customized to never repeat:${NORMAL}"
     if [[ "$commit_data" == "Saksham is a great TA!" ]]; then
         echo -e "You found an Easter egg. Here is an interesting commit:"
     fi
-    echo -e "$commit_data${NORMAL}"
+    echo -en "${INFO}${BOLD}$commit_data${NORMAL}"
+    echo -e "\n"
     read -t 10 -p "Enter your own commit or press the up arrow or w to use the above commit:" commit
     if [[ "$commit" == "" ]]; then
         let number_of_prompts++
@@ -1401,6 +1401,7 @@ function git_commit() {
         # If amend_flag is passed, I want to overwrite the last commit
         # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
         head -n -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        echo "=$(tail -n $((last_line_of_git_log)) "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1)" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
     fi
     if [[ -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
@@ -1489,7 +1490,6 @@ function git_diff() {
     fi
     prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
     new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
-    echo "$new_files"
     while read -d "~" -r line; do
         if [[ ! "~$new_files" =~ ~${line}~ ]]; then
             echo "The following file has been removed from the repository: $line" # No longer present in the new hash
@@ -1564,19 +1564,22 @@ function git_checkout() {
         if [[ -z "$line" ]]; then
             continue
         fi
-        commits+=("$(echo "$line" | cut -d ',' -f 1)")
+        potential_commit="$(echo "$line" | cut -d ',' -f 1)"
+        potential_commit="${potential_commit#=}"
+        potential_commit="$(echo "$potential_commit" | tr -d '\r')"
+        commits+=("$potential_commit")
     done < "$WORKING_DIRECTORY/.my_git/.git_log"
     # readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
     # commits=("${commits[@]/.my_git}")
     commit_found=false
     min_distance=100000
-    for commit in "${commits[@]}"; do
-        if [[ ! -n "$commit" ]]; then
+    for chosen_commit in "${commits[@]}"; do
+        if [[ ! -n "$chosen_commit" ]]; then
             continue
         fi
-        if [[ "$commit" =~ ^$commit_hash ]]; then
+        if [[ "$chosen_commit" =~ ^$commit_hash ]]; then
             commit_found=true
-            data="$(git_diff "$commit")"    
+            data="$(git_diff "$chosen_commit")"    
             if [[ -n "$data" && $force_flag!=true ]]; then
                 echo "$data"         
                 echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
@@ -1591,21 +1594,23 @@ function git_checkout() {
             break
         fi
         length=${#commit_hash}
-        distance=$(levenshtein "${commit:0:$length}" "$commit_hash")
+        distance=$(levenshtein "${chosen_commit:0:$length}" "$commit_hash")
         if [[ $distance -le $min_distance ]]; then # I'm using equality on purpose, because more recent commits are more likely the ones we want
             min_distance="$distance"
-            closest_commit="$commit"
+            closest_commit="$chosen_commit"
         fi
     done
     if [[ "$commit_found" == true ]]; then
-        find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+        # echo "HERE"
+        # echo "COMMIT: $commit"
+        find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
     else
         if [[ "$min_distance" -gt "$APPROXIMATION_DISTANCE" ]]; then
             echo -e "${ERROR}${BOLD}No commit found with the provided hash. Exiting...${NORMAL}"
             exit 1
         fi
-        commit="$closest_commit"
-        data="$(git_diff "$commit")"    
+        chosen_commit="$closest_commit"
+        data="$(git_diff "$chosen_commit")"
         if [[ -n "$data" && $force_flag!=true ]]; then
             echo "$data"         
             echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
@@ -1617,7 +1622,7 @@ function git_checkout() {
                 exit 1
             fi   
         fi
-        find "$WORKING_DIRECTORY/.my_git/$commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+        find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
     fi
 }
 
