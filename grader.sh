@@ -1326,11 +1326,16 @@ function parse_gitignore() {
 }
 
 function git_commit() {
-    getopt -o i:ma --long init:,message,amend -- "$@" > /dev/null 
+    getopt -o i:mat --long init:,message,amend,testing -- "$@" > /dev/null 
     number_of_prompts=0
     amend_flag=false
+    testing_flag=false
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
+            -t|--testing)
+                testing_flag=true
+                shift
+                continue ;;
             -a|--amend)
                 amend_flag=true
                 shift
@@ -1387,7 +1392,6 @@ function git_commit() {
     for i in {1..16}; do
         hash+=$(echo "obase=16;$RANDOM%16" | bc)
     done
-    ### TODO Add gitignore functionality. Decide which files to copy
     readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
     declare -a selected_quizzes=()
     for quiz in "${quizzes[@]}"; do
@@ -1395,7 +1399,53 @@ function git_commit() {
     done
     parse_gitignore
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"
-    cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l)
+    if [[ $number_of_commits -eq 0 ]]; then
+        cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+    else
+        # There are 3 possibilities -> The quiz is not present before this, the quiz was present in some older directory but not here
+        for quiz in "${selected_quizzes[@]}"; do
+            quiz="${quiz#$WORKING_DIRECTORY/}"
+            prev_commit_number="$number_of_commits"
+            previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+            previous_commit="${previous_commit#=}"
+            while [[ ! -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" ]]; do
+                let prev_commit_number--
+                if [[ $prev_commit_number -eq 0 ]]; then
+                    cp "$WORKING_DIRECTORY/$quiz" "$WORKING_DIRECTORY/.my_git/$hash"
+                    break
+                fi
+                previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                previous_commit="${previous_commit#=}"
+            done
+            if [[ $prev_commit_number -ne 0 ]]; then
+                # Diff between old and 
+                diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+            fi
+        done
+        # # There are 3 possibilities -> the quiz is present in both, the quiz was present in the old directory but not the new one
+        # # The first possibility is covered by the code below in the first and second if statements, a patch is added to the new commit and the old commit loses the file
+        # # The second possibility is covered by the second if statement, which optionally deletes the file from the old commit
+        # # The third possibility is covered by the cp statement and the lack of a rm to delete it later
+        # cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+        # last_commit=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+        # while IFS= read -r -d '' quiz; do
+        #     quiz="${quiz#$WORKING_DIRECTORY/.my_git/$last_commit/}"
+        #     if [[ -f "$WORKING_DIRECTORY/.my_git/$hash/$quiz" ]]; then
+        #         diff "$WORKING_DIRECTORY/.my_git/$hash/$quiz" "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+        #     fi
+        #     if [[ -f "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz.patch" ]]; then
+        #         rm "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz"
+        #     fi
+        #     selected_quizzes="${selected_quizzes[@]/$quiz}"
+        # done < <(find "$WORKING_DIRECTORY/.my_git/$last_commit" -maxdepth 1 -name "*.csv" -print0)
+        # # last_commit=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+        # # diff -u "$WORKING_DIRECTORY/.my_git/$last_commit" "$WORKING_DIRECTORY" | sed '/^Only in/d' > "$WORKING_DIRECTORY/.my_git/$hash/$hash.patch"
+        # # if [[ -f "$WORKING_DIRECTORY/.my_git/$last_commit/$last_commit.patch" ]]; then
+        # #     # Delete csv files from the last commit
+        # #     rm "$WORKING_DIRECTORY/.my_git/*.csv"
+        # # fi
+    fi
     previous_hash=$(tail -n $last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
     if [[ $amend_flag == true ]]; then
         # If amend_flag is passed, I want to overwrite the last commit
@@ -1404,7 +1454,7 @@ function git_commit() {
         echo "=$(tail -n $((last_line_of_git_log)) "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1)" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
     fi
-    if [[ -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+    if [[ testing_flag == false && -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
         git_diff "$previous_hash" "$hash"
     fi
     echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
@@ -1471,7 +1521,11 @@ function git_add() {
             exit
         fi
         file="$(realpath --relative-to "$WORKING_DIRECTORY" "$1")"
-        echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        if [[ $remove_flag == true ]]; then
+            echo "${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        else
+            echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        fi
         shift
     done
 }
@@ -1480,24 +1534,125 @@ function git_remove() {
     git_add -r "$@"
 }
 
+function restore_state() {
+    # Takes a commit id and restores state of the directory at the time of the commit
+    commit_to_restore="$1"
+    commit_to_restore="${commit_to_restore#=}"
+    if [[ ! -d "$WORKING_DIRECTORY/.my_git/$commit_to_restore" ]]; then
+        echo -e "${ERROR}${BOLD}No commit found with the commit id $commit_to_restore. Exiting...${NORMAL}"
+        exit 1
+    fi
+    if [[ -z $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch") ]]; then
+        return
+    fi
+    commit_number=$(grep -n "$commit_to_restore" "$WORKING_DIRECTORY/.my_git/.git_log")
+    for patch in $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch"); do
+        prev_commit_number="$number_of_commits"
+        previous_commit=$(tail -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
+        previous_commit="${previous_commit#=}"
+        while [[ ! -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" ]]; do
+            let prev_commit_number--
+            if [[ $prev_commit_number -eq 0 ]]; then
+                cp "$WORKING_DIRECTORY/$quiz" "$WORKING_DIRECTORY/.my_git/$hash"
+                break
+            fi
+            previous_commit=$(tail -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
+        done
+        if [[ $prev_commit_number -ne 0 ]]; then
+            # Diff between old and 
+            diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+        fi
+    done
+    # let commit_number--
+    # older_commit=$(head -n "$commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+    # while [[ -z $(find "$WORKING_DIRECTORY/.my_git/$older_commit" -maxdepth 1 -name "*.patch") ]]; do
+    #     let prev_commit_number--
+    #     older_commit=$(tail -n "$commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 1)
+    # done
+    # older_commit is now the first commit after the commit which has all required files.
+    for patch in $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch"); do
+        patch_file="${patch#$WORKING_DIRECTORY/.my_git/$commit_to_restore/}"
+        declare -a patches=()
+        patches+=("$patch")
+        prev_commit_number=$((commit_number-1))
+        previous_commit=$(head -n "$prev_commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+        while [[ -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$patch_file" ]]; do
+            patches+=("$WORKING_DIRECTORY/.my_git/$previous_commit/$patch_file")
+            let prev_commit_number--
+            previous_commit=$(head -n "$prev_commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+        done
+        patch -p1 < <(tac "${patches[@]}" | tac)
+        # if [[ -f "$WORKING_DIRECTORY/$patch_file" ]]; then
+        #     patch -p1 < "$patch" -o "$WORKING_DIRECTORY/$patch_file"
+        # else
+        #     patch -p1 < "$patch" -o "$WORKING_DIRECTORY/$patch_file"
+        # fi
+    done
+    # let prev_commit_number++
+    # echo "" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    # declare -a patches=()
+    # for ((i = prev_commit_number; i <= commit_number; i++)); do
+    #     previous_commit=$(head -n "$i" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+    # done
+}
+
+
 function git_diff() {
     # By implementation, we can assert that $1 and $2 are two unique commit hashes or $1 is the previous commit hash and $2 is empty (current working directory)
     prev_hash="$1"
     if [[ ! -n "$2" ]]; then
-        hash="../"
+        git_commit -t -m "Comparing" 1>/dev/null 2>/dev/null 
+        number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
+        hash="$(head -n $number_of_commits "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)"
     else
         hash="$2"
     fi
-    prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
-    new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -name "*.csv" -exec echo "{}~" \; | sed -E 's@.*/([^/]*)@\1@' | tr -d '\n')"
+    prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
+    new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
     while read -d "~" -r line; do
         if [[ ! "~$new_files" =~ ~${line}~ ]]; then
             echo "The following file has been removed from the repository: $line" # No longer present in the new hash
-        elif [[ -n $(diff "$WORKING_DIRECTORY/.my_git/$hash/$line" "$WORKING_DIRECTORY/.my_git/$prev_hash" ) ]]; then
-            echo "The following file has been modified in the repository: $line" # Modified in the new hash
+        else
+            # There are 3 options: a csv file is present in one file and the other is a diff, a csv file is present in both, a diff is present in both
+            if [[ -f "$WORKING_DIRECTORY/.my_git/$hash/$line" && -f "$WORKING_DIRECTORY/.my_git/$prev_hash/$line" ]]; then
+                if [[ -n $(diff "$WORKING_DIRECTORY/.my_git/$hash/$line" "$WORKING_DIRECTORY/.my_git/$prev_hash/$line" ) ]]; then
+                    echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                fi
+            else
+                if [[ -f "$WORKING_DIRECTORY/.my_git/$hash/$line" && -n "$(cat "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch")" ]]; then
+                    echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                elif [[ -f "$WORKING_DIRECTORY/.my_git/$prev_hash/$line" && -n "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$line.patch")" ]]; then
+                    echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                elif [[ -f "$WORKING_DIRECTORY/.my_git/$hash/$line.patch" && -f "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch" ]]; then
+                    # Need to check if the diff files produce the same result
+                    if [[ -z "$(cat "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch")" && -n "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$line.patch")" ]]; then
+                        echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                    elif [[ -n "$(cat "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch")" && -z "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$line.patch")" ]]; then
+                        echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                    elif [[ -n "$(cat "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch")"  && -n "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$line.patch")" ]]; then
+                        original_file="$(cat "$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch" | head -1 | sed -E 's/--- (.*)\t.*/\1/')"
+                        original_file="${original_file#\"}"
+                        original_file="${original_file%\"}"
+                        original_file="$(realpath "$original_file")"
+                        patch1="$WORKING_DIRECTORY/.my_git/$prev_hash/$line.patch"
+                        patch2="$WORKING_DIRECTORY/.my_git/$hash/$line.patch"
+                        patch -s "$original_file" -o "$WORKING_DIRECTORY/$TEMPORARY_FILE" < "$patch1"
+                        patch -s "$original_file" -o "$WORKING_DIRECTORY/${TEMPORARY_FILES[1]}" < "$patch2"
+                        if [[ -n $(diff "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/${TEMPORARY_FILES[1]}") ]]; then
+                            echo "The following file has been modified in the repository: $line" # Modified in the new hash
+                        fi
+                        rm "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/${TEMPORARY_FILES[1]}"
+                    fi
+                fi
+            fi
         fi
     done <<< "$prev_files"
-    if [[ "$hash" == "../" ]]; then # I am going to use $3 as a flag for checking new_stuff 
+    if [[ -z "$2" ]]; then # I am going to use $3 as a flag for checking new_stuff 
+        rm -r "$WORKING_DIRECTORY/.my_git/$hash"
+        number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
+        head -n $((number_of_commits-1)) "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
+        echo "" >> "$WORKING_DIRECTORY/.my_git/.git_log"
         return
     fi
     while read -d "~" -r line; do
@@ -1580,7 +1735,7 @@ function git_checkout() {
         if [[ "$chosen_commit" =~ ^$commit_hash ]]; then
             commit_found=true
             data="$(git_diff "$chosen_commit")"    
-            if [[ -n "$data" && $force_flag!=true ]]; then
+            if [[ -n "$data" && $force_flag != true ]]; then
                 echo "$data"         
                 echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
                 read -t 10 -p "Do you want to commit? (y/n): " answer
@@ -1600,18 +1755,14 @@ function git_checkout() {
             closest_commit="$chosen_commit"
         fi
     done
-    if [[ "$commit_found" == true ]]; then
-        # echo "HERE"
-        # echo "COMMIT: $commit"
-        find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
-    else
+    if [[ "$commit_found" != true ]]; then
         if [[ "$min_distance" -gt "$APPROXIMATION_DISTANCE" ]]; then
             echo -e "${ERROR}${BOLD}No commit found with the provided hash. Exiting...${NORMAL}"
             exit 1
         fi
         chosen_commit="$closest_commit"
         data="$(git_diff "$chosen_commit")"
-        if [[ -n "$data" && $force_flag!=true ]]; then
+        if [[ -n "$data" && $force_flag != true ]]; then
             echo "$data"         
             echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
             read -t 10 -p "Do you want to commit? (y/n): " answer
@@ -1622,8 +1773,20 @@ function git_checkout() {
                 exit 1
             fi   
         fi
-        find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
     fi
+    find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
+    while IFS= read -r -d '' patch; do
+        # TODO copy the result to the main directory
+        if [[ -n "$(cat "$patch")" ]]; then
+            original_file="$(cat "$patch" | head -1 | sed -E 's/--- (.*)\t.*/\1/')"
+            original_file="${original_file#\"}"
+            original_file="${original_file%\"}"
+            original_file="$(realpath "$original_file")"
+            patch_name="$(basename "$patch")"
+            patch_name="${patch_name%.patch}"
+            patch "$original_file" -o "$WORKING_DIRECTORY/$patch_name" < "$patch"        
+        fi
+    done < <(find "$WORKING_DIRECTORY/.my_git/$chosen_commit" -maxdepth 1 -name "*.patch" -print0)
 }
 
 function grade() {
