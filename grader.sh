@@ -1423,28 +1423,6 @@ function git_commit() {
                 diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
             fi
         done
-        # # There are 3 possibilities -> the quiz is present in both, the quiz was present in the old directory but not the new one
-        # # The first possibility is covered by the code below in the first and second if statements, a patch is added to the new commit and the old commit loses the file
-        # # The second possibility is covered by the second if statement, which optionally deletes the file from the old commit
-        # # The third possibility is covered by the cp statement and the lack of a rm to delete it later
-        # cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
-        # last_commit=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-        # while IFS= read -r -d '' quiz; do
-        #     quiz="${quiz#$WORKING_DIRECTORY/.my_git/$last_commit/}"
-        #     if [[ -f "$WORKING_DIRECTORY/.my_git/$hash/$quiz" ]]; then
-        #         diff "$WORKING_DIRECTORY/.my_git/$hash/$quiz" "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
-        #     fi
-        #     if [[ -f "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz.patch" ]]; then
-        #         rm "$WORKING_DIRECTORY/.my_git/$last_commit/$quiz"
-        #     fi
-        #     selected_quizzes="${selected_quizzes[@]/$quiz}"
-        # done < <(find "$WORKING_DIRECTORY/.my_git/$last_commit" -maxdepth 1 -name "*.csv" -print0)
-        # # last_commit=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-        # # diff -u "$WORKING_DIRECTORY/.my_git/$last_commit" "$WORKING_DIRECTORY" | sed '/^Only in/d' > "$WORKING_DIRECTORY/.my_git/$hash/$hash.patch"
-        # # if [[ -f "$WORKING_DIRECTORY/.my_git/$last_commit/$last_commit.patch" ]]; then
-        # #     # Delete csv files from the last commit
-        # #     rm "$WORKING_DIRECTORY/.my_git/*.csv"
-        # # fi
     fi
     previous_hash=$(tail -n $last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
     if [[ $amend_flag == true ]]; then
@@ -1533,69 +1511,6 @@ function git_add() {
 function git_remove() {
     git_add -r "$@"
 }
-
-function restore_state() {
-    # Takes a commit id and restores state of the directory at the time of the commit
-    commit_to_restore="$1"
-    commit_to_restore="${commit_to_restore#=}"
-    if [[ ! -d "$WORKING_DIRECTORY/.my_git/$commit_to_restore" ]]; then
-        echo -e "${ERROR}${BOLD}No commit found with the commit id $commit_to_restore. Exiting...${NORMAL}"
-        exit 1
-    fi
-    if [[ -z $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch") ]]; then
-        return
-    fi
-    commit_number=$(grep -n "$commit_to_restore" "$WORKING_DIRECTORY/.my_git/.git_log")
-    for patch in $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch"); do
-        prev_commit_number="$number_of_commits"
-        previous_commit=$(tail -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
-        previous_commit="${previous_commit#=}"
-        while [[ ! -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" ]]; do
-            let prev_commit_number--
-            if [[ $prev_commit_number -eq 0 ]]; then
-                cp "$WORKING_DIRECTORY/$quiz" "$WORKING_DIRECTORY/.my_git/$hash"
-                break
-            fi
-            previous_commit=$(tail -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
-        done
-        if [[ $prev_commit_number -ne 0 ]]; then
-            # Diff between old and 
-            diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
-        fi
-    done
-    # let commit_number--
-    # older_commit=$(head -n "$commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-    # while [[ -z $(find "$WORKING_DIRECTORY/.my_git/$older_commit" -maxdepth 1 -name "*.patch") ]]; do
-    #     let prev_commit_number--
-    #     older_commit=$(tail -n "$commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | head -1 | cut -d ',' -f 1)
-    # done
-    # older_commit is now the first commit after the commit which has all required files.
-    for patch in $(find "$WORKING_DIRECTORY/.my_git/$commit_to_restore" -maxdepth 1 -name "*.patch"); do
-        patch_file="${patch#$WORKING_DIRECTORY/.my_git/$commit_to_restore/}"
-        declare -a patches=()
-        patches+=("$patch")
-        prev_commit_number=$((commit_number-1))
-        previous_commit=$(head -n "$prev_commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-        while [[ -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$patch_file" ]]; do
-            patches+=("$WORKING_DIRECTORY/.my_git/$previous_commit/$patch_file")
-            let prev_commit_number--
-            previous_commit=$(head -n "$prev_commit_number" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-        done
-        patch -p1 < <(tac "${patches[@]}" | tac)
-        # if [[ -f "$WORKING_DIRECTORY/$patch_file" ]]; then
-        #     patch -p1 < "$patch" -o "$WORKING_DIRECTORY/$patch_file"
-        # else
-        #     patch -p1 < "$patch" -o "$WORKING_DIRECTORY/$patch_file"
-        # fi
-    done
-    # let prev_commit_number++
-    # echo "" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
-    # declare -a patches=()
-    # for ((i = prev_commit_number; i <= commit_number; i++)); do
-    #     previous_commit=$(head -n "$i" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
-    # done
-}
-
 
 function git_diff() {
     # By implementation, we can assert that $1 and $2 are two unique commit hashes or $1 is the previous commit hash and $2 is empty (current working directory)
@@ -1878,12 +1793,15 @@ function git_log() {
     /^[[:space:]]*$/ {
         next
     }
+    /^=/ {
+        next
+    }
     {
         print "Commit Hash: " $1
         print "Commit Time: " strftime("%c", $2)
         print "Commit Message: " $3
         print ""
-    }' "$WORKING_DIRECTORY/.my_git/.git_log"
+    }' < <(tac "$WORKING_DIRECTORY/.my_git/.git_log") | less
 }
 
 function display_boxplot() {
