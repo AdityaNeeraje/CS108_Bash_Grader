@@ -598,7 +598,6 @@ function query() {
 function percentile() {
     # The objective of this function is to print out the percentile of the student in all of the quizzes in main.csv. It assumes the data in main.csv is valid
     # I am implementing 3 tries, with the roll numbers, names and last digits of the roll numbers
-    ### TODO implement this
     # Two flags, one assuming the input is valid, the other assuming the input can be erroneous and needs to be spell-checked
     ### Notes: Initially, let me implement the function assuming the input is valid, then I can modify it.
     getopt -o "r: --long round:" -- "$@" > /dev/null
@@ -1041,7 +1040,6 @@ function update() {
         echo -e "${INFO}${BOLD}Enter quiz_name (enclosed in quotes if need be), roll_number and updated score separated by spaces${NORMAL}"
         exit 1
     fi
-    ### TODO -> Slightly bad handling of filenames with a space in them -> This can be solved by using a very weird character as IFS
     IFS=$'\x19'
     awk -v LABELS="${labels[*]}" -v SCORES="${scores[*]}" '
         BEGIN {
@@ -1238,6 +1236,8 @@ function git_init() {
                 continue
             fi
             line="$(echo "$line" | cut -d ',' -f 1)"
+            line="${line#HEAD}"
+            line="${line#=}"
             if [[ -d "$WORKING_DIRECTORY/.my_git/$line" ]]; then
                 cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory"
             fi
@@ -1406,6 +1406,7 @@ function git_commit() {
             quiz="${quiz#$WORKING_DIRECTORY/}"
             prev_commit_number="$number_of_commits"
             previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+            previous_commit="${previous_commit#HEAD}"
             previous_commit="${previous_commit#=}"
             while [[ ! -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" ]]; do
                 let prev_commit_number--
@@ -1414,15 +1415,22 @@ function git_commit() {
                     break
                 fi
                 previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                previous_commit="${previous_commit#HEAD}"
                 previous_commit="${previous_commit#=}"
             done
             if [[ $prev_commit_number -ne 0 ]]; then
                 # Diff between old and 
                 diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+                if [[ -z "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch")" ]]; then
+                    ln -s "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/.my_git/$hash/$quiz"
+                    rm "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+                fi
             fi
         done
     fi
     previous_hash=$(tail -n $last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ',' -f 1)
+    previous_hash="${previous_hash#HEAD}"
+    previous_hash="${previous_hash#=}"
     if [[ $amend_flag == true ]]; then
         # If amend_flag is passed, I want to overwrite the last commit
         # Note the difference between the normal git --amend in that I by default take the previous commit message to be the new commit message
@@ -1433,15 +1441,15 @@ function git_commit() {
     if [[ testing_flag == false && -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
         git_diff "$previous_hash" "$hash"
     fi
-    echo "$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
-    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    echo "HEAD$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" | sed -E '$! s/^HEAD//' > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
 }
 
 function git_status() {
     echo "On branch main"
-    echo "Quizzes that are being considered in main.csv:"
+    echo "Quizzes that are being tracked:"
     readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
     declare -a selected_quizzes=()
     for quiz in "${quizzes[@]}"; do
@@ -1457,7 +1465,7 @@ function git_status() {
     done
     echo -en "${NORMAL}"
     echo -e "\nThe following files are not being tracked. Modify the .my_gitignore file to start tracking them."
-    echo -en "${ERROR}"
+    echo -en "${ERROR}${BOLD}"
     for file in "${quizzes[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"
@@ -1469,6 +1477,7 @@ function git_status() {
 function git_add() {
     # Note that here, git_add with . or * as an argument simply replaces the content of .my_gitignore with ! of every csv file in the directory
     remove_flag=false
+    all_flag=false
     getopt -o r --long remove -- "$@" > /dev/null
     line_start=$(wc -l "$WORKING_DIRECTORY/.my_gitignore" | cut -d " " -f 1)
     let line_start++
@@ -1480,11 +1489,7 @@ function git_add() {
             continue
         fi
         if [[ "$1" == "." || "$1" == "*" ]]; then
-            echo "" > "$WORKING_DIRECTORY/.my_gitignore"
-            while IFS= read -r -d '' file; do
-                echo "!${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
-            done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)
-            exit
+            all_flag=true
         fi
         if [[ "$1" == "help" ]]; then
             echo -e "${INFO}${BOLD}Usage..${NORMAL}"
@@ -1504,6 +1509,15 @@ function git_add() {
         fi
         shift
     done
+    if [[ $all_flag == true ]]; then
+        if [[ $remove_flag == false ]]; then
+            prefix="!"
+        fi
+        echo "" > "$WORKING_DIRECTORY/.my_gitignore"
+        while IFS= read -r -d '' file; do
+            echo "${prefix}${file#$WORKING_DIRECTORY/}" >> "$WORKING_DIRECTORY/.my_gitignore"
+        done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0)        
+    fi
 }
 
 function git_remove() {
@@ -1517,6 +1531,8 @@ function git_diff() {
         git_commit -t -m "Comparing" 1>/dev/null 2>/dev/null 
         number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
         hash="$(head -n $number_of_commits "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)"
+        hash="${hash#HEAD}"
+        hash="${hash#=}"
     else
         hash="$2"
     fi
@@ -1575,6 +1591,32 @@ function git_diff() {
     done <<< "$new_files"
 }
 
+function check_to_save_data() {
+    if [[ $force_flag == true ]]; then
+        return
+    fi
+    main_commit="$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)"
+    main_commit="${main_commit#HEAD}"
+    main_commit="${main_commit#=}"
+    saved_data="$(git_diff "$main_commit")"
+    if [[ -z "$saved_data" ]]; then
+        return
+    fi
+    data="$(git_diff "$chosen_commit")"    
+    if [[ -z "$data" ]]; then
+        return
+    fi
+    echo "$saved_data"         
+    echo -e "${ERROR}${BOLD}The above files have been modified after your last commit. Please commit your changes before checking out a different commit.${NORMAL}"
+    read -t 10 -p "Do you want to commit? (y/n): " answer
+    if [[ "$answer" == "y" ]]; then
+        ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
+        git_commit 
+    else
+        exit 1
+    fi   
+}
+
 function git_checkout() {
     # Here are the flags I want -> a verbosity flag for copy, a force flag to not prompt to commit current changes
     getopt -o vf --long verbose,force -- "$@" > /dev/null
@@ -1603,6 +1645,13 @@ function git_checkout() {
                 shift
                 continue ;;
             *)
+                if [[ "$1" == "main" ]]; then
+                    commit_hash=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                    commit_hash="${commit_hash#HEAD}"
+                    commit_hash="${commit_hash#=}"
+                    shift
+                    continue
+                fi
                 if [[ "$1" == "help" ]]; then
                     echo -e "${INFO}${BOLD}Usage..${NORMAL}"
                     echo -e "${INFO}${BOLD}bash grader.sh git_checkout [COMMIT_HASH]${NORMAL}"
@@ -1633,6 +1682,7 @@ function git_checkout() {
             continue
         fi
         potential_commit="$(echo "$line" | cut -d ',' -f 1)"
+        potential_commit="${potential_commit#HEAD}"
         potential_commit="${potential_commit#=}"
         potential_commit="$(echo "$potential_commit" | tr -d '\r')"
         commits+=("$potential_commit")
@@ -1647,18 +1697,7 @@ function git_checkout() {
         fi
         if [[ "$chosen_commit" =~ ^$commit_hash ]]; then
             commit_found=true
-            data="$(git_diff "$chosen_commit")"    
-            if [[ -n "$data" && $force_flag != true ]]; then
-                echo "$data"         
-                echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
-                read -t 10 -p "Do you want to commit? (y/n): " answer
-                if [[ "$answer" == "y" ]]; then
-                    ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
-                    git_commit ### TODO What arguments to pass here
-                else
-                    exit 1
-                fi   
-            fi
+            check_to_save_data
             break
         fi
         length=${#commit_hash}
@@ -1674,22 +1713,18 @@ function git_checkout() {
             exit 1
         fi
         chosen_commit="$closest_commit"
-        data="$(git_diff "$chosen_commit")"
-        if [[ -n "$data" && $force_flag != true ]]; then
-            echo "$data"         
-            echo -e "${ERROR}${BOLD}The above files have been modified. Please commit your changes before checking out a different commit.${NORMAL}"
-            read -t 10 -p "Do you want to commit? (y/n): " answer
-            if [[ "$answer" == "y" ]]; then
-                ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
-                git_commit ### TODO What arguments to pass here
-            else
-                exit 1
-            fi   
-        fi
+        check_to_save_data
+    fi
+    echo "HERE"
+    # Next three lines modify the HEAD attribute in the git_log file
+    grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | sed -E "s/^HEAD//; s/^$chosen_commit/HEAD$chosen_commit/; s/^=$chosen_commit/HEAD=$chosen_commit/" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
+    echo "" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+    if [[ -n "$(grep -E "^HEAD=" "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+        echo "Currently in detached HEAD state. git_log will not work in this state"
     fi
     find "$WORKING_DIRECTORY/.my_git/$chosen_commit/" -maxdepth 1 -name "*.csv" -exec cp $verbose_flag {} "$WORKING_DIRECTORY" \;
     while IFS= read -r -d '' patch; do
-        # TODO copy the result to the main directory
         if [[ -n "$(cat "$patch")" ]]; then
             original_file="$(cat "$patch" | head -1 | sed -E 's/--- (.*)\t.*/\1/')"
             original_file="${original_file#\"}"
@@ -1730,6 +1765,10 @@ function grade() {
         max_total=total>max_total?total:max_total
     }
     END {
+        if (length(totals) == 0){
+            print "No data found. Exiting..."
+            exit 1
+        }
         rescaling_factor=100/max_total
         mean=total_sum/count
         # buckets=[mean-30/rescaling_factor, mean-20/rescaling_factor, mean-10/rescaling_factor, mean, mean+10/rescaling_factor, mean+20/rescaling_factor, mean+30/rescaling_factor]
@@ -1741,7 +1780,9 @@ function grade() {
             while (sorted_totals[ind] > bucket && ind > 0){
                 ind-=1
             }
-            ind++
+            if (ind != count){
+                ind++
+            }
             max_consecutive_diff=0
             max_consecutive_diff_index=ind
             width=prev_ind-ind
@@ -1756,6 +1797,10 @@ function grade() {
         }
     }
     ' "$WORKING_DIRECTORY/main.csv")
+    if [[ "${cutoffs[0]}" =~ ^No ]]; then
+        echo -e "${ERROR}${BOLD}No data found. Exiting...${NORMAL}"
+        exit 1
+    fi
     python3 - "$WORKING_DIRECTORY" "${cutoffs[@]}" << EOF
 #TODO What if plotly is not installed? Do I begin a venv? Need to check with Saksham
 import sys
@@ -1769,11 +1814,13 @@ data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
 data["total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
 data_sorted=data.sort_values(by="total").reset_index(drop=True)
 
-grades=["AP","AA","AB","BB","BC","CC","FR"]
+grades=["AP","AA","AB","BB","BC","CC","DD","FR"]
 data_sorted["Grade"]="AP"
-cutoff_indices=[len(data)+1]+cutoff_indices+[0]
+cutoff_indices=[len(data)+1]+cutoff_indices+[1]
 for i in range(1,len(cutoff_indices)):
     data_sorted.loc[cutoff_indices[i]-1:cutoff_indices[i-1]-2, "Grade"]=grades[i-1]
+
+data_sorted.to_html(f"{working_directory}/main.html")
 
 fig = px.scatter(data_sorted, x=range(len(data)), y="total", color="Grade",
                  hover_data=["Name", "Roll_Number"], 
@@ -1800,9 +1847,22 @@ function git_log() {
         echo -e "${ERROR}${BOLD}No commits found. Exiting...${NORMAL}"
         exit 1
     fi
+    if [[ -n "$(grep -E "^HEAD=" "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+        echo -e "${ERROR}${BOLD}Currently in detached HEAD state. Exiting...${NORMAL}"
+        exit 1
+    fi 
     awk '
     BEGIN {
         FS=","
+        head_found=0
+    }
+    /^HEAD/ {
+        head_found=1
+        $1=substr($1, 6)
+        $1=$1 " (HEAD)"
+    }
+    head_found==0 {
+        next
     }
     /^[[:space:]]*$/ {
         next
@@ -1813,7 +1873,14 @@ function git_log() {
     {
         print "Commit Hash: " $1
         print "Commit Time: " strftime("%c", $2)
-        print "Commit Message: " $3
+        output=""
+        for (i = 3; i <= NF; i++){
+            output=output $i
+            if (i != NF){
+                output=output ","
+            }
+        }
+        print output
         print ""
     }' < <(tac "$WORKING_DIRECTORY/.my_git/.git_log") | less
 }
