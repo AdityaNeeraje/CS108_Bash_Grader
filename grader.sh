@@ -53,6 +53,14 @@ function combine(){
                 continue ;;
             -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
             *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
+                    echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
+                    echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
+                    exit 0
+                fi
                 if [[ $starting_args == true ]]; then
                     while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
                         if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
@@ -69,23 +77,49 @@ function combine(){
                         shift;
                     done
                     if [[ "$1" == "help" ]]; then
-                        echo -e "${NON_FATAL_ERROR}${BOLD}Unexpected call to help in the middle of the arguments.${NORMAL}";
-                        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
-                        echo -e "${INFO}${BOLD}bash grader.sh combine help${NORMAL}"
-                        shift;
+                        echo -e "${INFO}Usage..${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
+                        echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
+                        echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
+                        exit 0
                     fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
                 else
                     echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
                 fi ;;
         esac
     done
-    if [[ "$1" =~ ^help$ ]]; then
-        echo -e "${INFO}Usage..${NORMAL}"
-        echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
-        echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
-        echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
-        echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
-        exit 0
+    if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
+        total_present_flag=true
+        readarray -t column_present < <(identify_cols_in_total)
+        IFS=","
+        readarray -t total_drop_quizzes < <(awk -v column_present="${column_present[*]}" '
+            BEGIN {
+                FS=","
+                split(column_present, array, ",")
+            }
+            NR == 1 {
+                for (i = 3; i <= NF; i++){
+                    if (!($i ~ /Total/)){
+                        count++
+                        if (array[count] == 0){
+                            print $i
+                        }
+                    }
+                }
+                exit
+            }
+            NR > 1 {
+                sum=0
+                for (i in array){
+                    sum+=$array[i]
+                }
+                if (sum != $total_col){
+                    print "Total column seems to be incorrect. Recomputing..."
+                    next
+                }
+                print
+            }' "$WORKING_DIRECTORY/main.csv")
     fi
     # If force_flag is true, then we don't want to consider what is currently in main.csv. We can empty it, it will be rewritten by later code.
     if [[ $force_flag == true ]]; then
@@ -99,7 +133,6 @@ function combine(){
         fi
         drop_flag=false
     fi
-    total_present_flag='false'
     # The -f flag forces new combine, help 
     declare -a old_quizzes;
     declare -a updated_quizzes; # This stores a list of quizzes which have been updated more recently than main.csv
@@ -287,6 +320,78 @@ function combine(){
     if [[ $drop_flag == true ]]; then
         drop "${drop_quizzes}"
     fi
+    if [[ $total_present_flag == true ]]; then
+        declare -a total_args=()
+        for quiz in "${total_drop_quizzes[@]}"; do
+            total_args+=("$quiz.csv")
+        done
+        total --drop "${total_args[@]}"
+    fi
+}
+
+function identify_cols_in_total() {
+    if [[ ! "$(head -1 "$WORKING_DIRECTORY/main.csv")" =~ ,Total ]]; then
+        echo -e "${ERROR}${BOLD}Total column not found in main.csv. Exiting...${NORMAL}"
+        exit 1
+    fi
+    awk '
+    BEGIN {
+        FS=","
+    }
+    NR == 1 {
+        for (i = 3; i <= NF; i++){
+            if (!($i ~ /Total/)) {
+                count++
+                array[i] = 1
+                quiz_numbers[count] = i
+            }
+            else {
+                total_col = i
+            }
+        }
+        number_of_quizzes = count
+        number_rejected=0
+        possible_combinations=2**number_of_quizzes
+    }
+    NR > 1 {
+        changed=1
+        while (changed==1 && number_rejected < possible_combinations){
+            changed=0
+            sum=0
+            for (num in array){
+                if (array[num] == 1) {sum+=$num}
+            }
+            if (($total_col - sum > 0 ? $total_col - sum: sum - $total_col) > 0.001){
+                changed=1
+                number_rejected++
+                if (array[quiz_numbers[count]] == 1) {array[quiz_numbers[count]] = 0}
+                else {
+                    array[quiz_numbers[count]] = 1
+                    for (ind=count-1; ind > 0; ind--){
+                        if (array[quiz_numbers[ind]] == 1) {
+                            array[quiz_numbers[ind]] = 0
+                            break
+                        }
+                        else {
+                            array[quiz_numbers[ind]] = 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    END {
+        if (number_rejected == possible_combinations){
+            for (num in array){
+                print 0
+            }
+            exit 0
+        }
+        for (num in array){
+            print array[num]
+        }
+    }
+    ' "$WORKING_DIRECTORY/main.csv"
 }
 
 function drop(){
@@ -358,7 +463,7 @@ function upload(){
                 elif [ -f "$WORKING_DIRECTORY/$(basename "$1")" ]; then
                     echo -e "${ERROR}${BOLD}A file with the same name as $1 already exists in the current directory. Do you want to overwrite [y/n]: ${NORMAL}";
                     read -t 10 -n 1 overwrite
-                    if [[ "$overwrite" == "y" ]]; then
+                    if [[ "$overwrite" == "y" || "$overwrite" == "Y" ]]; then
                         check_data_valid "$1"
                         if [[ $? -ne 0 ]]; then
                             echo "Invalid data in $1. Skipping..."
@@ -958,35 +1063,55 @@ function total() {
     if [[ $valid_data == "1" ]]; then
         echo "Total column is already present in main.csv. Exiting..."
         exit 0
-    else
-        echo "Total column is not present in main.csv. Adding the total column..."
     fi
-    awk '
+    IFS=","
+    awk -v ONLY_QUIZZES="$only_quizzes" -v DROP_QUIZZES="$drop_quizzes" '
         BEGIN {
             FS=","
             OFS=","
+            split(ONLY_QUIZZES, only_array, ",")
+            split(DROP_QUIZZES, drop_array, ",")
+            if (length(only_array)==0){
+                only_flag=0
+            }
+            else {
+                for (quiz in only_array) {
+                    only_quizzes[only_array[quiz]]=1
+                }
+                only_flag=1
+            }
+            if (length(drop_array)==0){
+                drop_flag=0
+            }
+            else {
+                for (quiz in drop_array) {
+                    drop_quizzes[drop_array[quiz]]=1
+                }
+                drop_flag=1
+            }
         }
         NR == 1 {
-            ending=2
-            ending_found=false
-            total_column=NF+1
-            for (i = 3; i <= NF; i++){
-                if (!(ending_found) && !($i ~ /^Total$/) && !($i ~ /^Mean$/)){
-                    ending=i
+            if ($NF == "Total") {
+                total_column=NF
+            }
+            else {
+                total_column=NF+1
+            }
+            for (i=3; i<total_column; i++){
+                if (drop_flag==1 && $i in drop_quizzes){
+                    continue
                 }
-                else {
-                    ending_found=true
-                    if ($i ~ /^Total$/){
-                        total_column=i
-                    }
+                if (only_flag==1 && !($i in only_quizzes)){
+                    continue
                 }
+                quizzes[i]=1
             }
             $total_column="Total"
             print $0
         }
         NR > 1 {
             total=0
-            for (i = 3; i <= ending; i++){
+            for (i in quizzes){
                 if ($i ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/){
                     total+=$i
                 }
@@ -1021,7 +1146,7 @@ function update() {
         student_name=$(grep -m 1 -i "$final_roll_number" "$WORKING_DIRECTORY/main.csv" | cut -d ',' -f 2)
         if [[ "${final_roll_number,,}" != "${roll_number,,}" ]]; then
             read -t 5 -p "Did you mean $final_roll_number, $student_name? (y/n): " answer
-            if [[ ! ("$answer" == "y") ]]; then
+            if [[ "$answer" != "y" && $answer != "Y"  ]]; then
                 continue
             fi
         fi
@@ -1166,7 +1291,7 @@ function git_init() {
     if [[ $force_flag==false && -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
         echo -e "${ERROR}${BOLD}Git repository already initialized.${NORMAL}"
         read -t 10 -p "Do you want to reinitialize the git repository? (y/n): " answer
-        if [[ "$answer" != "y" ]]; then
+        if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
             exit 1
         fi
     fi
@@ -1610,7 +1735,7 @@ function check_to_save_data() {
     echo "$saved_data"         
     echo -e "${ERROR}${BOLD}The above files have been modified after your last commit. Please commit your changes before checking out a different commit.${NORMAL}"
     read -t 10 -p "Do you want to commit? (y/n): " answer
-    if [[ "$answer" == "y" ]]; then
+    if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
         ### Actually, pass no arguments. If the user wants to run commit with arguments, they can do so after this
         git_commit 
     else
@@ -1739,8 +1864,18 @@ function git_checkout() {
 }
 
 function grade() {
+    if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
+        read -t 10 -p "The file already has a total column. Should I use that column for grading? [y/n]: " answer
+        total_present=0
+        if [[ "$answer" == "" ]]; then
+            total_present=1
+            echo "${INFO}${BOLD}Timed out. Defaulting to using the total column given for the total values.${NORMAL}"
+        elif [[ "$answer" == "y" || "$answer" == "Y" ]]; then
+            total_present=1
+        fi
+    fi
     width_divider=4
-    readarray -t cutoffs < <(awk -v WIDTH=$width_divider '
+    readarray -t cutoffs < <(awk -v WIDTH=$width_divider -v TOTAL_PRESENT=$total_present '
     BEGIN {
         FS=","
     }
@@ -1755,11 +1890,17 @@ function grade() {
     }
     NR > 1 {
         total=0
-        for (i = 3; i <= NF; i++){
-            if (i != total_column){
-                total=total+$i
+        if (TOTAL_PRESENT==1){
+            total=$total_column
+            totals[NR-1]=$total_column
+        }
+        else {
+            for (i = 3; i <= NF; i++){
+                if (i != total_column){
+                    total=total+$i
+                }
+                totals[NR-1]=total
             }
-            totals[NR-1]=total
         }
         total_sum+=total
         count+=1
@@ -1802,18 +1943,21 @@ function grade() {
         echo -e "${ERROR}${BOLD}No data found. Exiting...${NORMAL}"
         exit 1
     fi
-    python3 - "$WORKING_DIRECTORY" "${cutoffs[@]}" << EOF
+    python3 - "$WORKING_DIRECTORY" "$total_present" "${cutoffs[@]}" << EOF
 #TODO What if plotly is not installed? Do I begin a venv? Need to check with Saksham
 import sys
 import pandas as pd
 import plotly.express as px
 
 working_directory = sys.argv[1]
-cutoff_indices = [int(cutoff) for cutoff in sys.argv[2:]]
+total_present=int(sys.argv[2])
+cutoff_indices = [int(cutoff) for cutoff in sys.argv[3:]]
 data = pd.read_csv(f"{working_directory}/main.csv")
 data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
-data["total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
-data_sorted=data.sort_values(by="total").reset_index(drop=True)
+if total_present==0 and "Total" in data.columns:
+    data.drop(columns=["Total"], inplace=True)
+    data["Total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
+data_sorted=data.sort_values(by="Total").reset_index(drop=True)
 
 grades=["AP","AA","AB","BB","BC","CC","DD","FR"]
 data_sorted["Grade"]="AP"
@@ -1823,9 +1967,9 @@ for i in range(1,len(cutoff_indices)):
 
 data_sorted.to_html(f"{working_directory}/main.html")
 
-fig = px.scatter(data_sorted, x=range(len(data)), y="total", color="Grade",
+fig = px.scatter(data_sorted, x=range(len(data)), y="Total", color="Grade",
                  hover_data=["Name", "Roll_Number"], 
-                 labels={"total": "Total"})
+                 labels={"Total": "Total"})
 for cutoff in cutoff_indices[1:-1]:
     fig.add_vline(x=cutoff-1, line_dash="dash", line_color="red", opacity=0.3)
 fig.update_traces(marker=dict(size=5),
@@ -2178,3 +2322,5 @@ function main() {
 }
 
 main "$@"
+
+# identify_cols_in_total
