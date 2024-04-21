@@ -832,7 +832,9 @@ function analyze() {
         average=0
         count=0
         underformance=false
-        for line in "${data[@]:1:$((${#data[@]}-3))}"; do
+        name="${data[0]#analysis of }"
+        name="${name% in quizzes*}"
+        for line in "${data[@]:1:$((${#data[@]}-2))}"; do
             average=$(echo "scale=$round; $average+$(echo "$line" | awk -F': ' '{print $NF}')" | bc)
             let count++
         done
@@ -858,7 +860,6 @@ function analyze() {
 }
 
 function total() {
-        ### TODO -> Test to ensure comma-separated quiz names are properly handled
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
@@ -970,7 +971,7 @@ function total() {
             ending_found=false
             total_column=NF+1
             for (i = 3; i <= NF; i++){
-                if (!(ending_found) && !($i ~ /^Total$/) && !($i ~ /^Mean$/))){
+                if (!(ending_found) && !($i ~ /^Total$/) && !($i ~ /^Mean$/)){
                     ending=i
                 }
                 else {
@@ -1829,7 +1830,7 @@ for cutoff in cutoff_indices[1:-1]:
     fig.add_vline(x=cutoff-1, line_dash="dash", line_color="red", opacity=0.3)
 fig.update_traces(marker=dict(size=5),
                   selector=dict(mode='markers'))
-fig.update_layout(hovermode="closest",  # Show closest point on hover
+fig.update_layout(hovermode="closest",
                   xaxis_title="Index", 
                   yaxis_title="Total",
                   title="Scatter plot of total marks",
