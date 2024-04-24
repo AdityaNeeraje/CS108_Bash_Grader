@@ -241,6 +241,13 @@ function combine(){
     if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
         drop "${drop_quizzes}"
         echo "No new quizzes to add. Exiting..."
+        if [[ $total_present_flag == true ]]; then
+            declare -a total_args=()
+            for quiz in "${total_drop_quizzes[@]}"; do
+                total_args+=("$quiz.csv")
+            done
+            total --drop "${total_args[@]}"
+        fi
         exit 0
     fi
     # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
@@ -325,7 +332,11 @@ function combine(){
         for quiz in "${total_drop_quizzes[@]}"; do
             total_args+=("$quiz.csv")
         done
-        total --drop "${total_args[@]}"
+        if [[ "${#total_args[@]}" -gt 0 ]]; then
+            total --drop "${total_args[@]}"
+        else
+            total
+        fi
     fi
 }
 
@@ -976,7 +987,6 @@ function total() {
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -f|--force) 
-                starting_args=false
                 force_flag=true; shift;
                 continue ;;
             -d|--drop)
@@ -1017,14 +1027,17 @@ function total() {
                         fi
                         shift;
                     done
-                    if [[ "$1" == "help" ]]; then
-                        echo -e "${NON_FATAL_ERROR}${BOLD}Unexpected call to help in the middle of the arguments.${NORMAL}";
-                        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
-                        echo -e "${INFO}${BOLD}bash grader.sh combine help${NORMAL}"
-                        shift;
-                    fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
-                else
+                elif [[ "$1" != "help" ]]; then
                     echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                fi 
+                if [[ "$1" == "help" ]]; then
+                        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh total [QUIZ_FILES] [OPTIONS]${NORMAL}"
+                        echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                        echo -e "${INFO}${BOLD}-f, --force${NORMAL} Erases the total column, if present, and reruns total with all the quizzes.${NORMAL}"
+                        echo -e "${INFO}${BOLD}-d, --drop${NORMAL} Drop the specified quizzes from the total calculation. The quizzes should be passed as arguments."
+                        echo -e "${INFO}${BOLD}Example: bash grader.sh total quiz1.csv quiz2.csv -d quiz2.csv${NORMAL}"
+                        exit 0
                 fi ;;
         esac
     done
@@ -1062,6 +1075,7 @@ function total() {
     fi
     if [[ $valid_data == "1" ]]; then
         echo "Total column is already present in main.csv. Exiting..."
+        echo "Use the force flag if you want to reinitialize total column."
         exit 0
     fi
     IFS=","
@@ -1288,7 +1302,7 @@ function git_init() {
                 directory="$1"; shift; continue ;;
         esac
     done
-    if [[ $force_flag==false && -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
+    if [[ $force_flag == false && -h "$WORKING_DIRECTORY/.my_git" && -f "$WORKING_DIRECTORY/.my_git/.git_log" ]]; then # I had two options here -> One is to check for the .git_log file being non-empty, i.e at least one commit is over, other is checking if the file exists. Latter seems to make more sense
         echo -e "${ERROR}${BOLD}Git repository already initialized.${NORMAL}"
         read -t 10 -p "Do you want to reinitialize the git repository? (y/n): " answer
         if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
@@ -1357,6 +1371,10 @@ function git_init() {
         exit 1
     fi
     if [[ -h "$WORKING_DIRECTORY/.my_git" && -n "$(cat "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+        if [[ "$(realpath --relative-to "$WORKING_DIRECTORY/.my_git" "$final_directory")" == "." ]]; then
+            echo -e "${ERROR}${BOLD}The remote repository is already initialized where you want it to be. Exiting...${NORMAL}"
+            exit 0
+        fi
         while read -r line; do
             if [[ -z "$line" ]]; then
                 continue
@@ -1365,13 +1383,13 @@ function git_init() {
             line="${line#HEAD}"
             line="${line#=}"
             if [[ -d "$WORKING_DIRECTORY/.my_git/$line" ]]; then
-                cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory"
+                cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory" 2>/dev/null
             fi
         done < "$WORKING_DIRECTORY/.my_git/.git_log"
         rm "$WORKING_DIRECTORY/.my_git"
     fi    
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
-    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE" 2>/dev/null
     echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
 }
@@ -1525,7 +1543,7 @@ function git_commit() {
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"
     number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l)
     if [[ $number_of_commits -eq 0 ]]; then
-        cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash"
+        cp "${selected_quizzes[@]}" "$WORKING_DIRECTORY/main.csv" "$WORKING_DIRECTORY/.my_git/$hash" 2>/dev/null
     else
         # There are 3 possibilities -> The quiz is not present before this, the quiz was present in some older directory but not here
         for quiz in "${selected_quizzes[@]}"; do
@@ -1545,11 +1563,31 @@ function git_commit() {
                 previous_commit="${previous_commit#=}"
             done
             if [[ $prev_commit_number -ne 0 ]]; then
-                # Diff between old and 
                 diff -u "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/$quiz" > "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
                 if [[ -z "$(cat "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch")" ]]; then
                     ln -s "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" "$WORKING_DIRECTORY/.my_git/$hash/$quiz"
                     rm "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+                else 
+                    prev_commit_number="$number_of_commits"
+                    previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                    previous_commit="${previous_commit#HEAD}"
+                    previous_commit="${previous_commit#=}"
+                    # Invariants at this point -> We can assert a non-symlink patch file exists in previous_commit
+                    tail -n +3 "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+                    while [[ ! -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" || -L "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz" ]]; do
+                        if [[ -f "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz.patch" ]]; then
+                            if [[ -z "$(tail -n +3 "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz.patch" | diff "$WORKING_DIRECTORY/$TEMPORARY_FILE" -)" ]]; then
+                                rm "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+                                ln -s "$WORKING_DIRECTORY/.my_git/$previous_commit/$quiz.patch" "$WORKING_DIRECTORY/.my_git/$hash/$quiz.patch"
+                                rm "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+                                break
+                            fi
+                        fi
+                        let prev_commit_number--
+                        previous_commit=$(head -n $prev_commit_number "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                        previous_commit="${previous_commit#HEAD}"
+                        previous_commit="${previous_commit#=}"
+                    done
                 fi
             fi
         done
@@ -1564,7 +1602,7 @@ function git_commit() {
         echo "=$(tail -n $((last_line_of_git_log)) "$WORKING_DIRECTORY/.my_git/.git_log" | head -n 1)" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
     fi
-    if [[ testing_flag == false && -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
+    if [[ $testing_flag == false && -n "$(tail -$last_line_of_git_log "$WORKING_DIRECTORY/.my_git/.git_log")" ]]; then
         git_diff "$previous_hash" "$hash"
     fi
     echo "HEAD$hash,$(date +%s),$message" >> "$WORKING_DIRECTORY/.my_git/.git_log"
@@ -1662,8 +1700,8 @@ function git_diff() {
     else
         hash="$2"
     fi
-    prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -type f -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
-    new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -type f -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
+    prev_files="$(find "$WORKING_DIRECTORY/.my_git/$prev_hash" -maxdepth 1 -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
+    new_files="$(find "$WORKING_DIRECTORY/.my_git/$hash" -maxdepth 1 -regex ".*\.\(csv\|patch\)$" -exec echo "{}~" \;| sed -E 's@.*/([^/]*)@\1@' | sed 's/\.patch~/~/' | tr -d '\n')"
     while read -d "~" -r line; do
         if [[ ! "~$new_files" =~ ~${line}~ ]]; then
             echo "The following file has been removed from the repository: $line" # No longer present in the new hash
@@ -1984,6 +2022,30 @@ EOF
 }
 
 function git_log() {
+    getopt -o o --long oneline -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    oneline_flag=0
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -o|--oneline) 
+                oneline_flag=1
+                shift
+                continue ;;
+            help)
+                echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                echo -e "${INFO}${BOLD}bash grader.sh git_log${NORMAL}"
+                echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                echo -e "${INFO}${BOLD}-o, --oneline${NORMAL} Display the log in a single line${NORMAL}"
+                echo -e "${INFO}${BOLD}Example: bash grader.sh git_log${NORMAL}"
+                exit 0
+                ;;
+            *)
+                echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                shift; continue ;;
+        esac
+    done
     if [[ ! -h "$WORKING_DIRECTORY/.my_git" ]]; then
         echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
         exit 1
@@ -1996,7 +2058,7 @@ function git_log() {
         echo -e "${ERROR}${BOLD}Currently in detached HEAD state. Exiting...${NORMAL}"
         exit 1
     fi 
-    awk '
+    awk -v oneline_flag="$oneline_flag" '
     BEGIN {
         FS=","
         head_found=0
@@ -2015,7 +2077,19 @@ function git_log() {
     /^=/ {
         next
     }
-    {
+    {   
+        if (oneline_flag==1){
+            output=$1 " "
+            for (i = 3; i <= NF; i++){
+                output=output $i
+                if (i != NF){
+                    output=output ","
+                }
+            }
+            print output
+            print ""
+            next
+        }
         print "Commit Hash: " $1
         print "Commit Time: " strftime("%c", $2)
         output=""
@@ -2322,5 +2396,3 @@ function main() {
 }
 
 main "$@"
-
-# identify_cols_in_total
