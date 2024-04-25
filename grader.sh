@@ -15,7 +15,6 @@ TEMPORARY_FILE=${TEMPORARY_FILES[0]}
 APPROXIMATION_DISTANCE=5
 
 function combine(){
-    ### TODO -> Test to ensure comma-separated quiz names are properly handled
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
@@ -238,94 +237,97 @@ function combine(){
     fi
     touch "$WORKING_DIRECTORY/main.csv"
     line=${line%,} # Removing the last comma
+    initial_time=$(date +%N)
     if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
         drop "${drop_quizzes}"
         echo "No new quizzes to add. Exiting..."
-        if [[ $total_present_flag == true ]]; then
-            declare -a total_args=()
-            for quiz in "${total_drop_quizzes[@]}"; do
-                total_args+=("$quiz.csv")
-            done
-            total --drop "${total_args[@]}"
+    else
+        # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
+        ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
+        IFS=$'\x19'
+        if [[ true == true ]]; then
+            awk -v QUIZZES="${quizzes[*]}" -v output=$line '
+                BEGIN {
+                    FS=","    
+                    OFS=","
+                    split(QUIZZES, ARRAY, "\x19")
+                    file_num=0
+                    print output
+                    for (i = 1; i <= length(output); i++) {
+                        if (substr(output, i, 1) == ",") {
+                            number_of_quizzes++;
+                        }
+                    }
+                    number_of_quizzes-=length(ARRAY)+1;
+                }
+                /^\s*$/ {
+                    next
+                }
+                /^Roll_Number/ {
+                    file_num++
+                    next
+                }
+                ! (file_num in ARRAY) {
+                    if ($1 "~" $2 in results) {
+                        for (i in ARRAY){
+                            if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
+                                captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                                $(i+number_of_quizzes+2) = captured_group
+                            }
+                            else {
+                                $(i+number_of_quizzes+2) = "a"
+                            }
+                        }
+                        print
+                        delete results[$1 "~" $2]
+                    }
+                    else {
+                        for (i = 1; i <= length(ARRAY); i++){
+                            $(i+number_of_quizzes+2) = "a"
+                        }
+                    }
+                    next
+                }
+                {
+                    if ($1 "~" $2 in results) {
+                        results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+                    } else {
+                        results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+                    }
+                }
+                END {
+                    for (result in results){
+                        split(result, output_list, "~")
+                        output = output_list[1] "," output_list[2]
+                        for (i = 0; i < number_of_quizzes; i++){
+                            output = output ",a"
+                        }
+                        for (i in ARRAY){
+                            if (match(results[result], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
+                                captured_group = substr(results[result], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                                output =  output "," captured_group
+                            }
+                            else {
+                                output = output ",a"
+                            }
+                        }
+                        print output
+                    }
+                }
+            ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        else
+            exit
+            # echo "${quizzes[0]}"
+            # awk '
+            #     {print $0}
+            # ' < <(for quiz in "${quizzes[@]}"; do sed -E "s/$/,"$quiz"/" ""; echo -e "\n"; done | sort -t "," -k1,1)
+            # exit
         fi
-        exit 0
-    fi
-    # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
-    ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
-    IFS=$'\x19'
-    awk -v QUIZZES="${quizzes[*]}" -v output=$line '
-        BEGIN {
-            FS=","    
-            OFS=","
-            split(QUIZZES, ARRAY, "\x19")
-            file_num=0
-            print output
-            for (i = 1; i <= length(output); i++) {
-                if (substr(output, i, 1) == ",") {
-                    number_of_quizzes++;
-                }
-            }
-            number_of_quizzes-=length(ARRAY)+1;
-        }
-        /^\s*$/ {
-            next
-        }
-        /^Roll_Number/ {
-            file_num++
-            next
-        }
-        ! (file_num in ARRAY) {
-            if ($1 "~" $2 in results) {
-                for (i in ARRAY){
-                    if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
-                        captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
-                        $(i+number_of_quizzes+2) = captured_group
-                    }
-                    else {
-                        $(i+number_of_quizzes+2) = "a"
-                    }
-                }
-                print
-                delete results[$1 "~" $2]
-            }
-            else {
-                for (i = 1; i <= length(ARRAY); i++){
-                    $(i+number_of_quizzes+2) = "a"
-                }
-            }
-            next
-        }
-        {
-            if ($1 "~" $2 in results) {
-                results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
-            } else {
-                results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
-            }
-        }
-        END {
-            for (result in results){
-                split(result, output_list, "~")
-                output = output_list[1] "," output_list[2]
-                for (i = 0; i < number_of_quizzes; i++){
-                    output = output ",a"
-                }
-                for (i in ARRAY){
-                    if (match(results[result], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
-                        captured_group = substr(results[result], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
-                        output =  output "," captured_group
-                    }
-                    else {
-                        output = output ",a"
-                    }
-                }
-                print output
-            }
-        }
-    ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
-    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
-    # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
-    if [[ $drop_flag == true ]]; then
-        drop "${drop_quizzes}"
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
+        # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
+        if [[ $drop_flag == true ]]; then
+            drop "${drop_quizzes}"
+        fi
     fi
     if [[ $total_present_flag == true ]]; then
         declare -a total_args=()
@@ -338,6 +340,338 @@ function combine(){
             total
         fi
     fi
+    final_time=$(date +%N)
+    # echo "$final_time - $initial_time" | bc
+}
+
+function combine_modified_algorithm() {
+    getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    starting_args=true
+    only_flag=false # If only_flag is set, only a few files are taken as valid input files. All other files are ignored, but not deleted unless --force is specified. Useful when uploading one new column or so
+    declare -a quizzes; # This stores a list of the column names for the main.csv file
+    declare -a only_quizzes;
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -f|--force) 
+                starting_args=false
+                force_flag=true; shift;
+                continue ;;
+            -d|--drop)
+                starting_args=false
+                drop_flag=true;
+                drop_quizzes="";
+                shift;
+                while [[ ! "$1" =~ ^- ]] && [[ "$1" != "help" && "$1" != "" ]]; do
+                    ### Note: For checking file existence, we need to check both relative path existence and absolute path existence.
+                    ### If absolute path, store the relative path in $1
+                    if [ ! -f "$(realpath "$1")" ]; then 
+                        echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}";
+                        shift; continue;
+                    fi
+                    relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
+                    if [[ "$drop_quizzes" == "" ]]; then 
+                        drop_quizzes+="${relative_path%\.*}"
+                    else
+                        drop_quizzes+=",${relative_path%\.*}"
+                    fi
+                    shift;
+                done
+                continue ;;
+            -*) echo -e "${NON_FATAL_ERROR}Invalid flag passed - $1${NORMAL}"; shift; continue ;;
+            *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
+                    echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
+                    echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
+                    exit 0
+                fi
+                if [[ $starting_args == true ]]; then
+                    while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
+                        if [ ! -f "$(realpath "$1")" ] || [[ ! "$1" =~ \.csv$ ]] || [[ "$(realpath --relative-to="$WORKING_DIRECTORY" "$1")" == "main.csv" ]]; then 
+                            echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                        fi
+                        only_flag=true
+                        relative_path=$(realpath --relative-to="$WORKING_DIRECTORY" "$1")
+                        relative_path=$(sed 's/,/\x1A/g;' <<< "$relative_path") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
+                        if [[ "$only_quizzes" == "" ]]; then 
+                            only_quizzes+="${relative_path%\.*}"
+                        else
+                            only_quizzes+=",${relative_path%\.*}"
+                        fi
+                        shift;
+                    done
+                    if [[ "$1" == "help" ]]; then
+                        echo -e "${INFO}Usage..${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine [--force/-f]${NORMAL}"
+                        echo -e "${INFO}Use the force flag to recompute every column in main.csv, even if it exists earlier.${NORMAL}"
+                        echo -e "${INFO}${BOLD}bash grader.sh combine [--drop/-d] <FILENAMES>${NORMAL}"
+                        echo -e "${INFO}Use the drop flag to exclude certain quizzes from being recomputed in main.csv, even if they existed earlier.${NORMAL}"
+                        exit 0
+                    fi # This prevents an infinite loop on the niche case that the user inputs help in the middle of the set of arguments.
+                else
+                    echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue;
+                fi ;;
+        esac
+    done
+    if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
+        total_present_flag=true
+        readarray -t column_present < <(identify_cols_in_total)
+        IFS=","
+        readarray -t total_drop_quizzes < <(awk -v column_present="${column_present[*]}" '
+            BEGIN {
+                FS=","
+                split(column_present, array, ",")
+            }
+            NR == 1 {
+                for (i = 3; i <= NF; i++){
+                    if (!($i ~ /Total/)){
+                        count++
+                        if (array[count] == 0){
+                            print $i
+                        }
+                    }
+                }
+                exit
+            }
+            NR > 1 {
+                sum=0
+                for (i in array){
+                    sum+=$array[i]
+                }
+                if (sum != $total_col){
+                    print "Total column seems to be incorrect. Recomputing..."
+                    next
+                }
+                print
+            }' "$WORKING_DIRECTORY/main.csv")
+    fi
+    # If force_flag is true, then we don't want to consider what is currently in main.csv. We can empty it, it will be rewritten by later code.
+    if [[ $force_flag == true ]]; then
+        echo "" > "$WORKING_DIRECTORY/main.csv"
+        force_flag=false
+    fi
+    # There is the possibility that none of the quizzes the user mentioned were ever in the local directory. In that case, we don't want drop_flag to be true
+    if [[ $drop_quizzes == "" ]]; then
+        if [[ $drop_flag == true ]]; then
+            echo -e "${ERROR}No quizzes found in the current directory to drop. This program will still continue, since this is a non-fatal error. But you can check your arguments and rerun your command.${NORMAL}"
+        fi
+        drop_flag=false
+    fi
+    # The -f flag forces new combine, help 
+    declare -a old_quizzes;
+    declare -a updated_quizzes; # This stores a list of quizzes which have been updated more recently than main.csv
+    line="Roll_Number,Name,"
+    ### What the below if statements do is check if main already has some valid data,
+    ### if so, we do not want to change that, and these fields are kept as is when awk is run later.
+    if [ -f "$WORKING_DIRECTORY/main.csv" ]; then
+        ### Check if all the data in main.csv looks valid, if not, erase main.csv. It is corrupted
+        awk '
+            BEGIN {
+                FS=","
+            }
+            NR == 1 {
+                if (!($0 ~ /^Roll_Number,Name,/)) {exit 1;}
+                num_quizzes = NF-2
+                next
+            }
+            NR > 1 { 
+                if (NF != num_quizzes + 2) {exit 1;}
+                for (i = 1; i <= num_quizzes; i++){
+                    if (!($(2+i) ~ /^[[:space:]]*a[[:space:]]*$/) && !($(2+i) ~ /^[[:space:]]*[+-]?[0-9]+(\.[0-9]+)?[[:space:]]*$/)) {exit 1;}
+                }
+            }
+            NR == 6 {
+                exit 0 ### Most cases of incorrect data 
+                ### are likely to be due to extra print statements in the awk code or python code, which will affect at least one of the first few lines of main.csv,
+                ### so I think it is valid to stop checking if the first few lines of data are valid
+            }
+        ' "$WORKING_DIRECTORY/main.csv"
+        if [ $? -eq 1 ]; then
+            echo "" > "$WORKING_DIRECTORY/main.csv"
+        else
+            read -r file < "$WORKING_DIRECTORY/main.csv"
+            file=${file#"Roll_Number,Name,"}
+            file+="," # I noticed that the term after the last comma is not being read, so I am manually adding a comma at the end
+            while IFS=, read -r -d "," quiz; do
+                if [ -f "$WORKING_DIRECTORY/$quiz.csv" ]; then
+                    if [[ "$(stat -c %Y "$WORKING_DIRECTORY/main.csv")" -lt "$(stat -c %Y "$WORKING_DIRECTORY/$quiz.csv")" ]]; then
+                        updated_quizzes+=("$quiz")
+                    else
+                        old_quizzes+=("$quiz")
+                        line+="$quiz,"
+                    fi
+                elif [ "$quiz" == "Total" ]; then
+                    break
+                else
+                    drop_flag=true
+                    if [[ "$drop_quizzes" == "" ]]; then 
+                        drop_quizzes+="$quiz"
+                    else
+                        drop_quizzes+=",$quiz"
+                    fi
+                fi
+            done <<< "$file"
+        fi
+    fi
+    if [[ $only_flag == true ]]; then
+        ### If this file is already in main.csv, we don't want to add it again
+        while read -r -d ',' file; do
+            if [[ "$file" == "" ]]; then
+                continue
+            fi
+            if echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "Quiz $file already exists in the main.csv file. Skipping..."
+                continue
+            elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "$file is in the drop list. Skipping..."
+                continue
+            fi
+            quizzes+=("$file")
+            line+="$file,"
+        done <<< "$only_quizzes,"
+    else
+        ### Notes: Here, line changes to become the value of the first line in main, quizzes also changes
+        while IFS= read -r -d '' file; do
+            file=${file#"$WORKING_DIRECTORY/"} # Removing the working directory from the file name, because it is unnecesary to store the full path
+            file=${file%.csv} # Removing the .csv extension from the file name
+            file=$(sed 's/\x1A/,/g;' <<< "$file") # In case there is a comma in the quiz file name, which will interfere with the csv format, I am converting it to unicode \x1A
+            if [[ "$file" =~ main ]]; then
+                continue
+            elif echo "$line" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "Quiz $file already exists in the main.csv file. Skipping..."
+                continue
+            elif [[ $drop_flag == true ]] && echo "$drop_quizzes" | grep -Eq "(,|^)$file(,|$)"; then
+                echo "$file is in the drop list. Skipping..."
+                continue
+            fi
+            quizzes+=("$file")
+            line+="$file,"
+        done < <(find "$WORKING_DIRECTORY" -maxdepth 1 -name "*.csv" -print0) # null-terminated instead of newline-terminated, makes sure the last file is also processed correctly
+    fi
+    num_quizzes=$((${#quizzes[@]}+${#old_quizzes[@]}))
+    if [[ $num_quizzes -eq 0 ]]; then
+        echo -e "${ERROR}${BOLD}No quizzes found ${NORMAL}${BOLD}in the directory $WORKING_DIRECTORY. Please upload some quizzes and try again."
+        echo -e "${BOLD}Usage.."
+        echo -e "${INFO}${BOLD}bash grader.sh upload <PATH-TO-CSV-FILE>${NORMAL}"
+        exit 1
+    fi
+    # Notes: Since update will change the values in main.csv almost simultaneously to being called, we only need to worry about main.csv if the last updated time of main.csv is different from the most recently updated quizzes
+    if [[ ${#updated_quizzes[@]} -gt 0 ]]; then
+        echo "main.csv may have outdated information for the following quizzes: ${updated_quizzes[@]}. Updating main.csv for the same..."
+        drop "${updated_quizzes}"
+    fi
+    touch "$WORKING_DIRECTORY/main.csv"
+    line=${line%,} # Removing the last comma
+    initial_time=$(date +%N)
+    if [[ ${#quizzes[@]} -eq 0 ]]; then  # Note that quizzes includes updated_quizzes, so if quizzes is empty, updated_quizzes is also empty. We do not need to worry about that here
+        drop "${drop_quizzes}"
+        echo "No new quizzes to add. Exiting..."
+    else
+        # for quiz in "${quizzes[@]}" main; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done
+        ### Note: Potential drawback -> the awk command below will not work if the csv file does not have Roll_number at the start
+        IFS=$'\x19'
+        if [[ true == true ]]; then
+            awk -v QUIZZES="${quizzes[*]}" -v output=$line '
+                BEGIN {
+                    FS=","    
+                    OFS=","
+                    split(QUIZZES, ARRAY, "\x19")
+                    file_num=0
+                    print output
+                    for (i = 1; i <= length(output); i++) {
+                        if (substr(output, i, 1) == ",") {
+                            number_of_quizzes++;
+                        }
+                    }
+                    number_of_quizzes-=length(ARRAY)+1;
+                }
+                /^\s*$/ {
+                    next
+                }
+                /^Roll_Number/ {
+                    file_num++
+                    next
+                }
+                ! (file_num in ARRAY) {
+                    if ($1 "~" $2 in results) {
+                        for (i in ARRAY){
+                            if (match(results[$1 "~" $2], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A")) {
+                                captured_group = substr(results[$1 "~" $2], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                                $(i+number_of_quizzes+2) = captured_group
+                            }
+                            else {
+                                $(i+number_of_quizzes+2) = "a"
+                            }
+                        }
+                        print
+                        delete results[$1 "~" $2]
+                    }
+                    else {
+                        for (i = 1; i <= length(ARRAY); i++){
+                            $(i+number_of_quizzes+2) = "a"
+                        }
+                    }
+                    next
+                }
+                {
+                    if ($1 "~" $2 in results) {
+                        results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+                    } else {
+                        results[$1 "~" $2] = results[$1 "~" $2] ARRAY[file_num] "\x1A" $3 "\x1A";
+                    }
+                }
+                END {
+                    for (result in results){
+                        split(result, output_list, "~")
+                        output = output_list[1] "," output_list[2]
+                        for (i = 0; i < number_of_quizzes; i++){
+                            output = output ",a"
+                        }
+                        for (i in ARRAY){
+                            if (match(results[result], ARRAY[i] "\x1A" "[^\x1A]*" "\x1A", places)) {
+                                captured_group = substr(results[result], RSTART + length(ARRAY[i] "\x1A"), RLENGTH - length(ARRAY[i] "\x1A\x1A"))
+                                output =  output "," captured_group
+                            }
+                            else {
+                                output = output ",a"
+                            }
+                        }
+                        print output
+                    }
+                }
+            ' < <(for quiz in "${quizzes[@]}"; do cat "$WORKING_DIRECTORY/$quiz.csv"; echo -e "\n"; done; cat "$WORKING_DIRECTORY/main.csv") > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        else
+            exit
+            # echo "${quizzes[0]}"
+            # awk '
+            #     {print $0}
+            # ' < <(for quiz in "${quizzes[@]}"; do sed -E "s/$/,"$quiz"/" ""; echo -e "\n"; done | sort -t "," -k1,1)
+            # exit
+        fi
+        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
+        # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
+        if [[ $drop_flag == true ]]; then
+            drop "${drop_quizzes}"
+        fi
+    fi
+    if [[ $total_present_flag == true ]]; then
+        declare -a total_args=()
+        for quiz in "${total_drop_quizzes[@]}"; do
+            total_args+=("$quiz.csv")
+        done
+        if [[ "${#total_args[@]}" -gt 0 ]]; then
+            total --drop "${total_args[@]}"
+        else
+            total
+        fi
+    fi
+    final_time=$(date +%N)
+    # echo "$final_time - $initial_time" | bc
 }
 
 function identify_cols_in_total() {
@@ -990,8 +1324,10 @@ function total() {
                 force_flag=true; shift;
                 continue ;;
             -d|--drop)
+                # Note, by default, that drop implies force, if not, the total would not change when asked to drop a quiz it has previously evaluated
                 starting_args=false
                 drop_flag=true;
+                force_flag=true;
                 drop_quizzes="";
                 shift;
                 while [[ ! "$1" =~ ^- ]] && [[ ! "$1" == "help" ]] && [[ ! "$1" == "" ]]; do
@@ -1219,7 +1555,6 @@ function update() {
                         $total_column+=TEMP_ARRAY2[2]                        
                     }
                     $quizzes[TEMP_ARRAY2[1]]=TEMP_ARRAY2[2]
-                    # print quizzes[TEMP_ARRAY2[1]], TEMP_ARRAY2[2], $1
                 }
             }
             $1 = $1
@@ -1472,6 +1807,7 @@ function git_commit() {
     number_of_prompts=0
     amend_flag=false
     testing_flag=false
+    echo "$@"
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -t|--testing)
@@ -1692,6 +2028,7 @@ function git_diff() {
     # By implementation, we can assert that $1 and $2 are two unique commit hashes or $1 is the previous commit hash and $2 is empty (current working directory)
     prev_hash="$1"
     if [[ ! -n "$2" ]]; then
+        prev_data="$(cat "$WORKING_DIRECTORY/.my_git/.git_log")"
         git_commit -t -m "Comparing" 1>/dev/null 2>/dev/null 
         number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
         hash="$(head -n $number_of_commits "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)"
@@ -1740,12 +2077,9 @@ function git_diff() {
             fi
         fi
     done <<< "$prev_files"
-    if [[ -z "$2" ]]; then # I am going to use $3 as a flag for checking new_stuff 
+    if [[ -z "$2" ]]; then 
         rm -r "$WORKING_DIRECTORY/.my_git/$hash"
-        number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
-        head -n $((number_of_commits-1)) "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
-        mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
-        echo "" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+        echo -e "$prev_data" > "$WORKING_DIRECTORY/.my_git/.git_log"
         return
     fi
     while read -d "~" -r line; do
@@ -1796,6 +2130,7 @@ function git_checkout() {
     fi
     force_flag=false
     starting_args=true
+    main_flag=false
     while [[ "$#" -gt 0 ]]; do
         case "$1" in 
             -v|--verbose)
@@ -1810,11 +2145,32 @@ function git_checkout() {
                 continue ;;
             *)
                 if [[ "$1" == "main" ]]; then
+                    main_flag=true
                     commit_hash=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
                     commit_hash="${commit_hash#HEAD}"
                     commit_hash="${commit_hash#=}"
                     shift
                     continue
+                elif [[ "$1" =~ ^HEAD~ ]]; then
+                    shift_value="${1#HEAD~}"
+                    if [[ ! "$shift_value" =~ ^[0-9]+$ ]]; then
+                        echo -e "${ERROR}${BOLD}Invalid argument passed - $1. Skipping...${NORMAL}"
+                        shift; continue
+                    fi
+                    start_value=$(grep -n "^HEAD" "$WORKING_DIRECTORY/.my_git/.git_log" | cut -d ':' -f 1)
+                    commit_hash=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | head -$((start_value-shift_value)) | tail -1 | cut -d ',' -f 1)
+                    commit_hash="${commit_hash#HEAD}"
+                    commit_hash="${commit_hash#=}"
+                    if [[ -z "$commit_hash" ]]; then
+                        echo -e "${ERROR}${BOLD}No commit found. Exiting...${NORMAL}"
+                        exit 1
+                    fi
+                    shift; continue
+                elif [[ "$1" == "HEAD" ]]; then
+                    commit_hash=$(grep -E "^HEAD" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1 | cut -d ',' -f 1)
+                    commit_hash="${commit_hash#HEAD}"
+                    commit_hash="${commit_hash#=}"
+                    shift; continue
                 fi
                 if [[ "$1" == "help" ]]; then
                     echo -e "${INFO}${BOLD}Usage..${NORMAL}"
@@ -1828,6 +2184,7 @@ function git_checkout() {
                 if [[ $starting_args == true ]]; then
                     ### Note: Here, since we can only have one argument for commit_hash, we can safely assume that the first argument is the commit hash
                     starting_args=false
+                    main_flag=false
                     commit_hash="$1"
                     shift
                     continue
@@ -1851,8 +2208,6 @@ function git_checkout() {
         potential_commit="$(echo "$potential_commit" | tr -d '\r')"
         commits+=("$potential_commit")
     done < "$WORKING_DIRECTORY/.my_git/.git_log"
-    # readarray -t commits < <(find "$WORKING_DIRECTORY/.my_git/" -maxdepth 1 -type d -exec basename {} \;)
-    # commits=("${commits[@]/.my_git}")
     commit_found=false
     min_distance=100000
     for chosen_commit in "${commits[@]}"; do
@@ -1879,7 +2234,7 @@ function git_checkout() {
         chosen_commit="$closest_commit"
         check_to_save_data
     fi
-    echo "HERE"
+    echo "$chosen_commit"
     # Next three lines modify the HEAD attribute in the git_log file
     grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | sed -E "s/^HEAD//; s/^$chosen_commit/HEAD$chosen_commit/; s/^=$chosen_commit/HEAD=$chosen_commit/" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
@@ -1899,12 +2254,22 @@ function git_checkout() {
             patch "$original_file" -o "$WORKING_DIRECTORY/$patch_name" < "$patch"        
         fi
     done < <(find "$WORKING_DIRECTORY/.my_git/$chosen_commit" -maxdepth 1 -name "*.patch" -print0)
+    # If checking out main, make main the head and move it to the end of the git_log
+    if [[ $main_flag == true ]]; then
+        grep -Ev "^[[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        if [[ ! "$(tail -1 "$WORKING_DIRECTORY/$TEMPORARY_FILE")" =~ ^HEAD ]]; then
+            head -n -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" > "$WORKING_DIRECTORY/.my_git/.git_log"
+            tail -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" | tac >> "$WORKING_DIRECTORY/.my_git/.git_log"
+            echo "" >> "$WORKING_DIRECTORY/.my_git/.git_log"
+        fi
+        rm "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    fi
 }
 
 function grade() {
+    total_present=0
     if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
         read -t 10 -p "The file already has a total column. Should I use that column for grading? [y/n]: " answer
-        total_present=0
         if [[ "$answer" == "" ]]; then
             total_present=1
             echo "${INFO}${BOLD}Timed out. Defaulting to using the total column given for the total values.${NORMAL}"
@@ -1992,8 +2357,9 @@ total_present=int(sys.argv[2])
 cutoff_indices = [int(cutoff) for cutoff in sys.argv[3:]]
 data = pd.read_csv(f"{working_directory}/main.csv")
 data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
-if total_present==0 and "Total" in data.columns:
-    data.drop(columns=["Total"], inplace=True)
+if total_present==0:
+    if "Total" in data.columns:
+        data.drop(columns=["Total"], inplace=True)
     data["Total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
 data_sorted=data.sort_values(by="Total").reset_index(drop=True)
 
@@ -2102,6 +2468,118 @@ function git_log() {
         print output
         print ""
     }' < <(tac "$WORKING_DIRECTORY/.my_git/.git_log") | less
+}
+
+function git_reset() {
+    getopt -o h --long hard -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    hard_flag=false
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -h|--hard) 
+                hard_flag=true
+                shift
+                continue ;;
+            help)
+                echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+                echo -e "${INFO}${BOLD}bash grader.sh git_reset${NORMAL}"
+                echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                echo -e "${INFO}${BOLD}-h, --hard${NORMAL}Does not prompt user for anything other than storing the present state of the working directory/${NORMAL}"
+                echo -e "${INFO}${BOLD}Example: bash grader.sh git_reset${NORMAL}"
+                exit 0
+                ;;
+            *)
+                commit_hash="$1"
+        esac
+    done
+    if [[ ! -h "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
+        exit 1
+    elif [[ ! -n $(cat "$WORKING_DIRECTORY/.my_git/.git_log") ]]; then
+        echo -e "${ERROR}${BOLD}No commits found. Exiting...${NORMAL}"
+        exit 1
+    fi
+    if [[ $hard_flag == false ]]; then
+        echo -e "${NON_FATAL_ERROR}${BOLD}Warning... My git_revert irreversibly forgets all later commits and checks out the commit to which you are reverting. Data present in the working directory may also be irreversibly lost. Please consider this before reverting.${NORMAL}"
+        read -t 10 -p "Do you want to continue? (y/n): " answer
+        if [[ "$answer" == "" ]]; then
+            echo -e "${ERROR}${BOLD}Timed out. Exiting...${NORMAL}"
+            exit 1
+        elif [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+            exit 1
+        fi
+    fi
+    if [[ "$commit_hash" == "" ]]; then
+        if [[ $force_flag == false ]]; then
+            echo -e "${NON_FATAL_ERROR}${BOLD}No commit hash provided. Assuming reversion to the penultimate commit is intended. Press n within 10 seconds to cancel.${NORMAL}"
+            read -t 10 -p "Do you want to revert to the last commit? (y/n): " answer
+            if [[ "$answer" =~ ^n || "$answer" =~ ^n ]]; then
+                echo -e "${ERROR}${BOLD}Exiting...${NORMAL}"
+                exit 1
+            fi
+        fi
+        commit_hash="$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -2 | head -1 | cut -d ',' -f 1)"
+        commit_hash="${commit_hash#HEAD}"
+        commit_hash="${commit_hash#=}"
+    fi
+    if [[ "$commit_hash" == "" || "${#commit_hash}" -lt 4 ]]; then
+        echo -e "${ERROR}${BOLD}A commit hash of sufficient length (>=4) has not been provided. Exiting...${NORMAL}"
+        exit 1
+    fi
+    original_number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
+    git_checkout "$commit_hash"
+    if [[ $? -ne 0 ]]; then
+        echo -e "${ERROR}${BOLD}Reverting failed. Exiting...${NORMAL}"
+        exit 1
+    fi
+    final_number_of_commits=$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | wc -l | cut -d ":" -f 1)
+    if [[ $final_number_of_commits -gt $original_number_of_commits ]]; then
+        saved_commit="$(head -$final_number_of_commits "$WORKING_DIRECTORY/.my_git/.git_log" | tail -1)"
+    else
+        saved_commit=""
+    fi
+    awk -v saved_commit="$saved_commit" '
+        /^$/ {
+            next
+        }
+        /^HEAD/ {
+            if (saved_commit != ""){
+                printf "%s\n", saved_commit
+            }
+            head_found=1
+            print $0
+        }
+        head_found==0 {
+            print $0
+        }
+    ' "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
+}
+
+function git_revert() {
+    if [[ "$1" == "help" ]]; then
+        echo -e "${INFO}${BOLD}Usage..${NORMAL}"
+        echo -e "${INFO}${BOLD}bash grader.sh git_revert [COMMIT_HASH]${NORMAL}"
+        echo -e "${INFO}${BOLD}Example: bash grader.sh git_revert 1234${NORMAL}"
+        exit 0
+    fi
+    if [[ ! -h "$WORKING_DIRECTORY/.my_git" ]]; then
+        echo -e "${ERROR}${BOLD}No git repository found. Please run git_init first. Exiting...${NORMAL}"
+        exit 1
+    elif [[ ! -n $(cat "$WORKING_DIRECTORY/.my_git/.git_log") ]]; then
+        echo -e "${ERROR}${BOLD}No commits found. Exiting...${NORMAL}"
+        exit 1
+    fi
+    commit_hash="$1"
+    if [[ "$commit_hash" == "" ]]; then
+        echo -e "${NON_FATAL_ERROR}${BOLD}In the absence of a provided hash, I am assuming you want to revert to the penultimate hash.${NORMAL}"
+        commit_hash="$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -2 | head -1 | cut -d ',' -f 1)"
+    fi
+    commit_hash_message="$(grep "$commit_hash" "$WORKING_DIRECTORY/.my_git/.git_log" | sed -E 's/[^,]*,[^,]*,(.*)/\1/')"
+    git_checkout "$commit_hash"
+    git_commit -m "Reverting to $commit_hash_message"
 }
 
 function display_boxplot() {
@@ -2389,6 +2867,12 @@ function main() {
     elif [[ "$1" == "grade" ]]; then
         shift;
         grade "$@"
+    elif [[ "$1" == "git_reset" ]]; then
+        shift;
+        git_reset "$@"
+    elif [[ "$1" == "git_revert" ]]; then
+        shift;
+        git_revert "$@"
     else
         echo "Invalid command"
         ### TODO ### -> Echo "Usage: " and whatever I want here
