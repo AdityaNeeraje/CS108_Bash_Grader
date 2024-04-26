@@ -1,0 +1,25 @@
+\documentclass{article}
+\usepackage{listings}
+\usepackage{fancyhdr}
+
+
+\title{CS108 Bash Grader}
+\author{Aditya Neeraje : 23B0940}
+\date{April 25, 2024}
+
+%  TODO: Make a nice header
+
+\begin{document}
+    \maketitle
+    \pagebreak
+    \tableofcontents
+    \section{Objective}
+    Designed to make life easier for generations of TAs and professors to come, this \texttt{Bash Grader} project enables easy compilation and analysis of students' grades across a course, automatic assignment of grades based on the marks distribution, and version control using a clone of git, the stupid content tracker\footnote{See the man page for git. Linus Torvalds calls git his stupid content tracker.}.
+
+    \section{Combine and its Permutations}
+    For my project, I have implemented two algorithms to combine files.
+    \\
+    \\
+    My primary algorithm makes use of associative arrays in awk, parsing the combined output of calling the cat command on every quiz to be added. For each student, awk stores his data as \texttt{<QUIZ\_NAME><DELIMITER><MARKS>}. After the students' data from every quiz has been read, awk processes the main.csv file. For every quiz in main.csv, if the corresponding roll number is an index of \texttt{results}, I add extra 
+
+\end{document}

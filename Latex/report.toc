@@ -1,0 +1,2 @@
+\contentsline {section}{\numberline {1}Objective}{2}{}%
+\contentsline {section}{\numberline {2}Combine and its Permutations}{2}{}%
