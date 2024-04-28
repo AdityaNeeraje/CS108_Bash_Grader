@@ -545,6 +545,200 @@ function combine_modified_algorithm() {
     fi
 }
 
+function rescale() {
+    getopt -o w:cr: --long --weights-only:,custom,round: -- "$@" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+    weights_only=false
+    custom_flag=false
+    round=2
+    declare -a preliminary_weights=()
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in 
+            -w|--weights-only)
+                weights_only=true
+                if [[ $custom_flag == true ]]; then
+                    echo -e "${ERROR}${BOLD}Cannot use both weights-only and custom flags together. Exiting...${NORMAL}"
+                    exit 1
+                fi
+                shift
+                while [[ "$1" != "" && "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; do
+                    preliminary_weights+=("$1")
+                    shift
+                done
+                continue ;;
+            -c|--custom)
+                custom_flag=true
+                if [[ $weights_only == true ]]; then
+                    echo -e "${ERROR}${BOLD}Cannot use both weights-only and custom flags together. Exiting...${NORMAL}"
+                    exit 1
+                fi
+                shift
+                continue ;;
+            -r|--round)
+                shift
+                if [[ "$1" == "" || ! "$1" =~ ^[0-9]+$ ]]; then
+                    echo -e "${ERROR}${BOLD}Invalid argument passed for rounding. Ignoring...${NORMAL}"
+                else
+                    round="$1"
+                fi
+                shift
+                continue ;;
+            *)
+                if [[ "$1" == "help" ]]; then
+                    echo -e "${INFO}Usage..${NORMAL}"
+                    echo -e "${INFO}${BOLD}bash submission.sh rescale [Options]${NORMAL}"
+                    echo -e "${INFO}${BOLD}Options:${NORMAL}"
+                    echo -e "${INFO}Use the weights-only flag to pass a series of weights for every quiz in the order they appear in main.csv, instead of having to list every quiz individually.${NORMAL}"
+                    echo -e "${INFO}${BOLD}Arguments to weight can also be passed as FINAL_MAXIMUM/MAXIMUM, with no spaces, where FINAL_MAXIMUM is the MAXIMUM after rescaling and MAXIMUM is the maximum of the dataset.${NORMAL}"
+                    echo -e "${INFO}Use the custom flag to choose which quizzes to rescale manually.${NORMAL}"
+                    echo -e "${INFO}Use the round flag to round the final marks to a particular number of decimal places.${NORMAL}"
+                    exit 0
+                    shift; continue;
+                fi
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid/Unnecesary argument passed - $1${NORMAL}"; shift; continue ;;
+        esac
+    done
+    declare -a quizzes=()
+    readarray -t quizzes < <(head -1 "$WORKING_DIRECTORY/main.csv" | sed 's/Roll_Number,Name,//; s/,/\n/g')
+    index=0
+    if [[ $custom_flag ==  false ]]; then
+        declare -a weights=()
+        quiz_number=0
+        for quiz in "${quizzes[@]}"; do
+            let quiz_number++
+            if [[ "$quiz" == "Total" ]]; then
+                weights+=("1")
+                continue
+            fi
+            while [[ $index -lt ${#preliminary_weights[@]} ]]; do
+                if [[ -n "$(echo "scale=$round; ${preliminary_weights[$index]}" | bc)" ]]; then
+                    weights+=("$(echo "scale=$round; ${preliminary_weights[$index]}" | bc)")
+                    let index++
+                    break
+                else
+                    while [[ -z "$(echo "scale=$round; ${preliminary_weights[$index]}" | bc)" ]]; do
+                        read -p "Enter the weight for $quiz: " weight
+                        if [[ "$weight" == "" ]]; then
+                            weights+=("1")
+                        fi
+                    done
+                    let index++
+                fi
+            done
+            if [[ "${#weights[@]}" == $quiz_number ]]; then
+                continue
+            fi
+            read -p "Enter the weight for $quiz: " weight
+            if [[ "$weight" == "" ]]; then
+                weight=1
+            fi
+            while [[ -z "$(bc < <(echo "scale=$round; $weight"))" ]] ; do
+                echo -e "${ERROR}${BOLD}Invalid weight passed - $weight. Please enter a valid weight.${NORMAL}"
+                read -p "Enter the weight for $quiz: " weight
+                if [[ "$weight" == "" ]]; then
+                    weight=1
+                fi
+            done
+            weights+=("$(echo "scale=$round; $weight" | bc)")
+        done
+    else
+        declare -A quiz_numbers=()
+        index=-1
+        declare -a weights=()
+        for quiz in "${quizzes[@]}"; do
+            let index++
+            weights+=("1")
+            quiz_numbers["$quiz"]="$index"
+        done
+        index=0
+        quizzes_in_main=$(head -n 1 "$WORKING_DIRECTORY/main.csv" | sed -E 's/Roll_Number,Name,(.*)/\1/; s/,/~/g' | sed -E 's/~Total//')
+        while read -r -p "Enter the quiz_name for the next update: " quiz_name; do
+            if [[ "$quiz_name" == "" ]]; then
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid input. All three fields are required are required.${NORMAL}"
+                continue
+            fi
+            if [[ ! "~$quizzes_in_main~" =~ ~$quiz_name~ ]]; then
+                echo -e "${NON_FATAL_ERROR}${BOLD}Invalid quiz name entered. Please enter a valid quiz name.${NORMAL}"
+                echo -e "${INFO}${BOLD}Valid quiz names are: $(echo $quizzes_in_main | tr '~' '\n')${NORMAL}"
+                continue
+            fi
+            read -r -p "Enter the rescaling factor for the quiz: " weight
+            if [[ "$weight" == "" ]]; then
+                weight=1
+            fi
+            while [[ -z "$(bc < <(echo "scale=$round; $weight"))" ]] ; do
+                echo -e "${ERROR}${BOLD}Invalid weight passed - $weight. Please enter a valid weight.${NORMAL}"
+                read -p "Enter the weight for $quiz_name: " weight
+                if [[ "$weight" == "" ]]; then
+                    weight=1
+                fi
+            done
+            weights[${quiz_numbers["$quiz_name"]}]="$(echo "scale=$round; $weight" | bc)"
+        done
+        echo -e "\n${INFO}${BOLD}EOF Received.. Processing updates...${NORMAL}" # I feel it will be better to process all updates at once rather than with 
+        for weight in "${weights[@]}"; do
+            echo "$weight"
+        done
+    fi
+    if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
+        total_present_flag=true
+        readarray -t column_present < <(identify_cols_in_total)
+        IFS=","
+        readarray -t total_drop_quizzes < <(awk -v column_present="${column_present[*]}" '
+            BEGIN {
+                FS=","
+                split(column_present, array, ",")
+            }
+            NR == 1 {
+                for (i = 3; i <= NF; i++){
+                    if (!($i ~ /Total/)){
+                        count++
+                        if (array[count] == 0){
+                            print $i ".csv"
+                        }
+                    }
+                }
+                exit
+            } ' "$WORKING_DIRECTORY/main.csv")
+    fi
+    IFS=" "
+    awk -v WEIGHTS="${weights[*]}" '
+        BEGIN {
+            FS=","
+            OFS=","
+            split(WEIGHTS, array, " ")
+            CONVFMT="%.2f"
+            OFMT = "%.2f"
+        }
+        NR == 1 {
+            print $0
+            next
+        }
+        {
+            for (i = 3; i <= NF; i++){
+                if ($i=="a"){
+                    $i = "a"
+                }
+                else {
+                    $i = $i * array[i-2]
+                }
+            }
+            $1=$1
+            print $0
+        }
+        ' "$WORKING_DIRECTORY/main.csv" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+    mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
+    if [[ $total_present_flag == true ]]; then
+        if [[ "${#total_drop_quizzes[@]}" -gt 0 ]]; then
+            total --force --drop "${total_drop_quizzes[@]}"
+        else
+            total --force
+        fi        
+    fi
+}
+
 function identify_cols_in_total() {
     if [[ ! "$(head -1 "$WORKING_DIRECTORY/main.csv")" =~ ,Total ]]; then
         echo -e "${ERROR}${BOLD}Total column not found in main.csv. Exiting...${NORMAL}"
@@ -2288,7 +2482,12 @@ function grade_manual() {
     python3 - "$WORKING_DIRECTORY" << EOF
 import sys
 import pandas as pd
-import tkinter as tk
+from matplotlib import pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from matplotlib.colors import Normalize
+from matplotlib.cm import plasma
+from time import sleep
 
 working_directory = sys.argv[1]
 data = pd.read_csv(f"{working_directory}/main.csv")
@@ -2303,20 +2502,46 @@ else:
 
 data_sorted=data.sort_values(by="Total").reset_index(drop=True)
 
-root=tk.Tk()
-root.configure(background='white')
-root.title("Decide Cutoffs for your class")
-width=int(len(data)*7.5)
-height=int(len(data)*5)
-root.geometry(f"{width+20}x{height+20}")
-canvas=tk.Canvas(root,width=width,height=height,bg="white",borderwidth=0)
-canvas.pack(fill="both", expand=True, padx=10, pady=10)
-num_datapoints=len(data)
-max_score=data_sorted["Total"].iloc[-1]
-for num, datapoint in enumerate(data_sorted["Total"][::-1]):
-    canvas.create_oval((num-0.5)*width/num_datapoints, datapoint*height/max_score, (num+0.5)*width/num_datapoints, datapoint*height/max_score+width/num_datapoints, fill="blue4")
+grades=["AP","AA","AB","BB","BC","CC","DD","FR"]
+line_colors = ["purple", "red", "green", "blue", "orange", "deeppink", "slateblue", "black"]
+current_grade=-1
+prev_x_data=len(data)
+def on_mouse_move(event):
+    global current_grade, current_line
+    if event.xdata is not None and round(event.xdata) <= prev_x_data and event.inaxes:
+        current_line.set_xdata([round(event.xdata)])
+        fig.canvas.draw_idle()
 
-root.mainloop()
+def on_mouse_click(event):
+    global current_grade, current_line, prev_x_data
+    if round(event.xdata) <= prev_x_data and event.inaxes:
+        current_grade+=1
+        if current_grade==len(grades)-2:
+            ax.set_title(f"Thank you for selecting all the cutoffs", weight="bold", size=18, color="black")
+            fig.canvas.draw_idle()
+            fig.canvas.mpl_disconnect(mne)
+            fig.canvas.mpl_disconnect(bpe)
+            sleep(3)
+            plt.close(fig)
+            return
+        ax.set_title(f"Click on the cutoff for grade {grades[current_grade+1]}", weight="bold", size=18, color=line_colors[current_grade+1])
+        current_line=ax.axvline(x=round(event.xdata), color=line_colors[current_grade+1], linestyle="--", alpha=0.3)
+        prev_x_data=round(event.xdata)
+        fig.canvas.draw_idle()
+
+plt.rcParams['figure.facecolor'] = 'gray'
+fig,ax=plt.subplots(figsize=(16,12))
+norm = Normalize(vmin=data_sorted["Total"].min(), vmax=data_sorted["Total"].max())
+colors = plasma(norm(data_sorted["Total"]))
+ax.scatter(range(1,len(data)+1), data_sorted["Total"],c=colors)
+ax.set_facecolor("black")
+ax.set_title(f"Click on the cutoff for grade {grades[0]}", weight="bold", size=18, color=colors[0])
+ax.set_xlabel("Students", weight="bold", size=16)
+ax.set_ylabel("Total Score", weight="bold", size=16)
+current_line=ax.axvline(x=len(data), color="red", linestyle="--", alpha=0.3)
+mne=fig.canvas.mpl_connect('motion_notify_event', on_mouse_move)
+bpe=fig.canvas.mpl_connect('button_press_event', on_mouse_click)
+plt.show()
 EOF
 }
 
@@ -2779,6 +3004,9 @@ function main() {
     elif [[ "$1" == "combine2" ]]; then
         shift;
         combine_modified_algorithm "$@"
+    elif [[ "$1" == "rescale" ]]; then
+        shift;
+        rescale "$@"
     elif [[ "$1" == "upload" ]]; then
         shift; # This is done to remove the first argument, which is upload
         upload "$@"
