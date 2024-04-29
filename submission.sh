@@ -323,9 +323,9 @@ function combine(){
             total_args+=("$quiz.csv")
         done
         if [[ "${#total_args[@]}" -gt 0 ]]; then
-            total --drop "${total_args[@]}"
+            total --force --drop "${total_args[@]}"
         else
-            total
+            total --force
         fi
     fi
     final_time=$(date +%N)
@@ -528,7 +528,7 @@ function combine_modified_algorithm() {
             END {
                 print output                
             }
-        ' < <(i=0; for quiz in "${quizzes[@]}"; do let i++; tail -n +2 "$WORKING_DIRECTORY/$quiz.csv" | sed -E "s/$/",$i"/" ; echo -e "\n"; done | sort -t "," -k1,1 -k4,4) > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
+        ' < <(i=0; for quiz in "${quizzes[@]}"; do let i++; tail -n +2 "$WORKING_DIRECTORY/$quiz.csv" | sed -E "s/$/",$i"/" ; echo -e "\n"; done | sort -t "," -k1,1 -k2,2 -k4,4) > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
         # echo a newline is important. In initial runs, I was not incrementing file_num because the next file would be appended on the same line as the old file 
     fi
@@ -538,9 +538,9 @@ function combine_modified_algorithm() {
             total_args+=("$quiz.csv")
         done
         if [[ "${#total_args[@]}" -gt 0 ]]; then
-            total --drop "${total_args[@]}"
+            total --force --drop "${total_args[@]}"
         else
-            total
+            total --force
         fi
     fi
 }
@@ -854,6 +854,7 @@ function check_data_valid(){
 }
 
 function upload(){
+    # TODO Test Upload again
     getopt -o fd: --long force,drop: -- "$@" > /dev/null # This ensures that the flags passed are correct. Incorrect arguments are later filtered out in the while loop
     if [[ $? -ne 0 ]]; then
         exit 1;
@@ -2188,7 +2189,11 @@ function check_to_save_data() {
     main_commit="${main_commit#HEAD}"
     main_commit="${main_commit#=}"
     saved_data="$(git_diff "$main_commit")"
-    if [[ -z "$saved_data" ]]; then
+    second_main_commit="$(grep -Ev "^[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" | tail -2 | head -1 | cut -d ',' -f 1)"
+    second_main_commit="${second_main_commit#HEAD}"
+    second_main_commit="${second_main_commit#=}"
+    second_saved_data=$(git_diff "$second_main_commit")
+    if [[ -z "$saved_data" || -z "$second_saved_data" ]]; then
         return
     fi
     data="$(git_diff "$chosen_commit")"    
@@ -2350,7 +2355,8 @@ function git_checkout() {
         grep -Ev "^[[[:space:]]*$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
         if [[ ! "$(tail -1 "$WORKING_DIRECTORY/$TEMPORARY_FILE")" =~ ^HEAD ]]; then
             head -n -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" > "$WORKING_DIRECTORY/.my_git/.git_log"
-            tail -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" | tac >> "$WORKING_DIRECTORY/.my_git/.git_log"
+            # tail -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" | tac >> "$WORKING_DIRECTORY/.my_git/.git_log"
+            tail -2 "$WORKING_DIRECTORY/$TEMPORARY_FILE" >> "$WORKING_DIRECTORY/.my_git/.git_log"
             echo "" >> "$WORKING_DIRECTORY/.my_git/.git_log"
         fi
         rm "$WORKING_DIRECTORY/$TEMPORARY_FILE"
@@ -2479,31 +2485,46 @@ EOF
 
 function grade_manual() {
     # Reference: https://www.tutorialspoint.com/how-to-find-tags-near-to-mouse-click-in-tkinter-python-gui
-    python3 - "$WORKING_DIRECTORY" << EOF
+    if [[ ! -f "$WORKING_DIRECTORY/main.csv" ]]; then
+        echo -e "${ERROR}${BOLD}main.csv not found. Exiting...${NORMAL}"
+        exit 1
+    fi
+    total_present=0
+    if [[ -n "$(head -1 "$WORKING_DIRECTORY/main.csv" | grep -E ",Total")" ]]; then
+        read -t 10 -p "The file already has a total column. Should I use that column for grading? [y/n]: " answer
+        if [[ "$answer" == "" ]]; then
+            total_present=1
+            echo "${INFO}${BOLD}Timed out. Defaulting to using the total column given for the total values.${NORMAL}"
+        elif [[ "$answer" == "y" || "$answer" == "Y" ]]; then
+            total_present=1
+        fi
+    fi
+    python3 - "$WORKING_DIRECTORY" "$total_present" << EOF
 import sys
 import pandas as pd
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize
-from matplotlib.cm import plasma
+from matplotlib.cm import *
 from time import sleep
 
-working_directory = sys.argv[1]
+working_directory=sys.argv[1]
+total_present=int(sys.argv[2])
 data = pd.read_csv(f"{working_directory}/main.csv")
 data.replace(to_replace=r'^a*$', value='0', regex=True, inplace=True)
-if "Total" in data.columns:
-    answer=input("Data column detected. Do you want to use this column for grading? [y/n]: ")
-    if answer != "y" and answer != "Y":
+if total_present==0:
+    if "Total" in data.columns:
         data.drop(columns=["Total"], inplace=True)
-        data["Total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
-else:
     data["Total"] = data.iloc[:,2:].astype('float64').sum(axis=1)
+else:
+    data["Total"]=data["Total"].astype('float64')
 
 data_sorted=data.sort_values(by="Total").reset_index(drop=True)
 
 grades=["AP","AA","AB","BB","BC","CC","DD","FR"]
 line_colors = ["purple", "red", "green", "blue", "orange", "deeppink", "slateblue", "black"]
+cutoffs=[]
 current_grade=-1
 prev_x_data=len(data)
 def on_mouse_move(event):
@@ -2513,10 +2534,18 @@ def on_mouse_move(event):
         fig.canvas.draw_idle()
 
 def on_mouse_click(event):
-    global current_grade, current_line, prev_x_data
+    global current_grade, current_line, prev_x_data, cutoffs, ax
     if round(event.xdata) <= prev_x_data and event.inaxes:
         current_grade+=1
+        cutoffs.append(prev_x_data)
         if current_grade==len(grades)-2:
+            cutoffs.append(1)
+            cutoffs[0]+=1
+            cutoffs=cutoffs[::-1]
+            data_sorted["Grade"]="AP"
+            for i in range(1,len(cutoffs)):
+                data_sorted.loc[cutoffs[i-1]-1:cutoffs[i]-1, "Grade"]=grades[7-i]
+            data_sorted.to_html(f"{working_directory}/main.html")
             ax.set_title(f"Thank you for selecting all the cutoffs", weight="bold", size=18, color="black")
             fig.canvas.draw_idle()
             fig.canvas.mpl_disconnect(mne)
@@ -2529,12 +2558,12 @@ def on_mouse_click(event):
         prev_x_data=round(event.xdata)
         fig.canvas.draw_idle()
 
-plt.rcParams['figure.facecolor'] = 'gray'
+plt.rcParams.update({'figure.facecolor': 'cyan'})
+plt.style.use("bmh")
 fig,ax=plt.subplots(figsize=(16,12))
 norm = Normalize(vmin=data_sorted["Total"].min(), vmax=data_sorted["Total"].max())
-colors = plasma(norm(data_sorted["Total"]))
+colors = turbo(norm(data_sorted["Total"]))
 ax.scatter(range(1,len(data)+1), data_sorted["Total"],c=colors)
-ax.set_facecolor("black")
 ax.set_title(f"Click on the cutoff for grade {grades[0]}", weight="bold", size=18, color=colors[0])
 ax.set_xlabel("Students", weight="bold", size=16)
 ax.set_ylabel("Total Score", weight="bold", size=16)
@@ -2542,6 +2571,120 @@ current_line=ax.axvline(x=len(data), color="red", linestyle="--", alpha=0.3)
 mne=fig.canvas.mpl_connect('motion_notify_event', on_mouse_move)
 bpe=fig.canvas.mpl_connect('button_press_event', on_mouse_click)
 plt.show()
+EOF
+}
+
+function report_card() {
+    # Source: Latex code largely taken from https://www.overleaf.com/latex/templates/the-university-of-alabama-letter/gjjyckkksphb
+    if [[ ! -f "$WORKING_DIRECTORY/main.html" ]]; then
+        read -t 10 -p "${NON_FATAL_ERROR}${BOLD}main.html not found. Should I generate main.html using the autograder? [y/n]${NORMAL}" answer
+        if [[ "$answer" == "" ]]; then
+            echo -e "${INFO}${BOLD}Timed out. Defaulting to generating main.html using the autograder.${NORMAL}"
+            grade
+        elif [[ "$answer" == "y" || "$answer" == "Y" ]]; then
+            grade
+        else
+            exit 1
+        fi
+    fi
+    declare -a students_list=()
+    while [[ "$#" -gt 0 ]]; do
+        preliminary_name="$1"
+        if [[ -n "$(grep -Ei "$preliminary_name," "$WORKING_DIRECTORY/main.csv")" ]]; then
+            student_name="$(grep -Ei "$preliminary_name," "$WORKING_DIRECTORY/main.csv" | cut -d ',' -f 2)"
+        else
+            student_name="$(query "$1" -n 1 | sed -En 's/[^,]*,([a-zA-Z ]*).*/\1/p' )"
+        fi
+        students_list+=("$student_name")
+        shift
+    done
+    for student in "${students_list[@]}"; do
+        echo "$student"
+    done
+    python3 - "$WORKING_DIRECTORY" "${students_list[@]}" << EOF
+import sys
+import os
+import pandas as pd
+try:
+    import lxml
+except (ImportError, ModuleNotFoundError):
+    os.system("pip install lxml")
+
+working_directory=sys.argv[1]
+data=pd.read_html(f"{working_directory}/main.html")[0]
+data.drop(columns=["Unnamed: 0"], inplace=True)
+
+print(sys.argv[2])
+if sys.argv[2] == "":
+    students_list=list(data["Name"])
+else:
+    students_list=sys.argv[2:]
+
+os.makedirs(f"{working_directory}/Report_Cards", exist_ok=True)
+for file in ["definitions.tex", "Logo.png", "packages.tex", "template.tex"]:
+    os.system(f'cp "{working_directory}/Report_Cards_Template/{file}" "{working_directory}/Report_Cards/"')
+
+latex_template = r"""
+\def\ToNameDef{%s}
+\def\RollNum{%s}
+\def\PassStatus{%s}
+\def\Grade{%s}
+\definecolor{lightgray}{RGB}{220,220,220}
+\definecolor{white}{RGB}{255,255,255}
+\def\TableContent{
+    \begin{table}[htbp]
+        \centering
+        \rowcolors{2}{lightgray}{white} % Alternate colors starting from the second row
+        \setlength{\arrayrulewidth}{1.5pt} % Thickness of outer border
+        \begin{tabularx}{\linewidth}{|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|} % Adjusting table width and centering text
+            \hline
+            \rowcolor{lightgray} % Header color
+            \textbf{Quiz} & \textbf{Score} \\\\
+            \hline
+            %s
+            \hline
+            Total & %s \\\\
+            \hline
+        \end{tabularx}
+    \end{table}
+}
+"""
+
+for student in data.iterrows():
+    student=student[1]
+    name=student["Name"]
+    if name not in students_list:
+        continue
+    roll_number=student["Roll_Number"]
+    if student["Grade"]=="FR":
+        passed="failed"
+    else:
+        passed="passed"
+    total=student["Total"]
+    table_data=""
+    columns=list(student.index[2:-2])
+    for i in range(2, len(student)-2):
+        table_data+=fr"{columns[i-2]} & {student.iloc[i]} \\\\ "
+    grade=student["Grade"]
+    formatted_latex=latex_template.replace("%s", name, 1)
+    formatted_latex=formatted_latex.replace("%s", roll_number, 1)
+    formatted_latex=formatted_latex.replace("%s", passed, 1)
+    formatted_latex=formatted_latex.replace("%s", grade, 1)
+    formatted_latex=formatted_latex.replace("%s", table_data, 1)
+    formatted_latex=formatted_latex.replace("%s", str(total), 1)
+    os.system(f'cp "{working_directory}/Report_Cards/template.tex" "{working_directory}/Report_Cards/{roll_number}.tex"')
+    with open (f"{working_directory}/Report_Cards/definitions.tex", "w") as file:
+        print(formatted_latex)
+        file.write(formatted_latex)
+    os.system(f'cd "{working_directory}/Report_Cards" && pdflatex -interaction=nonstopmode "{roll_number}.tex"')
+    os.system(f'cp "{working_directory}/Report_Cards/{roll_number}.pdf" "{working_directory}/Report_Cards/output.pdf"')
+    os.system(f"rm \"{working_directory}/Report_Cards/{roll_number}\"*")
+    os.system(f'mv "{working_directory}/Report_Cards/output.pdf" "{working_directory}/Report_Cards/{roll_number}.pdf"')
+
+os.system(f'rm "{working_directory}/Report_Cards/definitions.tex"')
+os.system(f'rm "{working_directory}/Report_Cards/template.tex"')
+os.system(f'rm "{working_directory}/Report_Cards/packages.tex"')
+os.system(f'rm "{working_directory}/Report_Cards/Logo.png"')
 EOF
 }
 
@@ -3061,6 +3204,9 @@ function main() {
     elif [[ "$1" == "grade_manual" ]]; then
         shift;
         grade_manual "$@"
+    elif [[ "$1" == "report_card" ]]; then
+        shift;
+        report_card "$@"
     elif [[ "$1" == "git_reset" ]]; then
         shift;
         git_reset "$@"

@@ -1,2 +1,24 @@
-\contentsline {section}{\numberline {1}Objective}{2}{}%
-\contentsline {section}{\numberline {2}Combine and its Permutations}{2}{}%
+\contentsline {section}{\numberline {1}Objective}{3}{}%
+\contentsline {section}{\numberline {2}Introduction}{3}{}%
+\contentsline {section}{\numberline {3}Combine and its Permutations}{3}{}%
+\contentsline {section}{\numberline {4}Rescale}{4}{}%
+\contentsline {section}{\numberline {5}Upload}{4}{}%
+\contentsline {section}{\numberline {6}query}{4}{}%
+\contentsline {section}{\numberline {7}percentile}{5}{}%
+\contentsline {section}{\numberline {8}Analyze/Analyse}{5}{}%
+\contentsline {section}{\numberline {9}Total}{6}{}%
+\contentsline {section}{\numberline {10}Update}{6}{}%
+\contentsline {section}{\numberline {11}git\_init}{6}{}%
+\contentsline {section}{\numberline {12}git\_commit}{7}{}%
+\contentsline {section}{\numberline {13}git\_status}{8}{}%
+\contentsline {section}{\numberline {14}git\_add}{8}{}%
+\contentsline {section}{\numberline {15}git\_remove}{8}{}%
+\contentsline {section}{\numberline {16}git\_checkout}{8}{}%
+\contentsline {section}{\numberline {17}grade}{8}{}%
+\contentsline {section}{\numberline {18}grade\_manual}{9}{}%
+\contentsline {section}{\numberline {19}report\_card}{9}{}%
+\contentsline {section}{\numberline {20}git\_log}{9}{}%
+\contentsline {section}{\numberline {21}git\_reset}{9}{}%
+\contentsline {section}{\numberline {22}git\_revert}{10}{}%
+\contentsline {section}{\numberline {23}Boxplot and Stripplot}{10}{}%
+\contentsline {section}{\numberline {24}Describe}{10}{}%
