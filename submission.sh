@@ -1648,6 +1648,9 @@ function update() {
                     if ($i ~ /^[[:space:]]*a[[:space:]]*$/){
                         continue
                     }
+                    if ($i ~ /0/){
+                        continue
+                    }
                     output=working_directory "/" quizzes[i] ".csv"
                     while ((getline line < output) > 0){
                         if (line ~ roll_number){
