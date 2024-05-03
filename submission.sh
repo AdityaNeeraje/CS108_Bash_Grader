@@ -1809,10 +1809,12 @@ function git_init() {
                 cp -r "$verbose_flag" "$WORKING_DIRECTORY/.my_git/$line" "$final_directory" 2>/dev/null
             fi
         done < "$WORKING_DIRECTORY/.my_git/.git_log"
-        rm "$WORKING_DIRECTORY/.my_git"
     fi    
+    if [[ -h "$WORKING_DIRECTORY/.my_git" ]]; then
+        grep -Ev "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE" 2>/dev/null
+        rm "$WORKING_DIRECTORY/.my_git"
+    fi
     ln -s "$final_directory" "$WORKING_DIRECTORY/.my_git"
-    grep -v "^$" "$WORKING_DIRECTORY/.my_git/.git_log" > "$WORKING_DIRECTORY/$TEMPORARY_FILE" 2>/dev/null
     echo "" >> "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/.my_git/.git_log"
 }
@@ -1962,8 +1964,11 @@ function git_commit() {
     done
     readarray -t quizzes < <(sed -E 's/^Roll_Number,Name,(.*)/\1\.csv/;s/,/\.csv\n/g; 1q' "$WORKING_DIRECTORY/main.csv" | sed -E "s@^@$WORKING_DIRECTORY/@")
     declare -a selected_quizzes=()
+    selected_quizzes+=("$WORKING_DIRECTORY/main.csv")
     for quiz in "${quizzes[@]}"; do
-        selected_quizzes+=("$quiz")
+        if [[ -f "$quiz" ]]; then
+            selected_quizzes+=("$quiz")
+        fi
     done
     parse_gitignore
     mkdir "$WORKING_DIRECTORY/.my_git/$hash"

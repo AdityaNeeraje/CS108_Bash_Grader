@@ -1,0 +1,27 @@
+\def\ToNameDef{XYZ}
+\def\RollNum{ROLLNUMBER}
+\def\PassStatus{PASSSTATUS}
+\def\Grade{GRADE}
+\definecolor{lightgray}{RGB}{220,220,220}
+\definecolor{white}{RGB}{255,255,255}
+\def\TableContent{
+    \begin{table}[htbp]
+        \centering
+        \rowcolors{2}{lightgray}{white} % Alternate colors starting from the second row
+        \setlength{\arrayrulewidth}{1.5pt} % Thickness of outer border
+        \begin{tabularx}{\linewidth}{|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|} % Adjusting table width and centering text
+            \hline
+            \rowcolor{lightgray} % Header color
+            \textbf{Quiz} & \textbf{Score} \\
+            \hline
+            Subject1 & A \\
+            Subject2 & B \\
+            Subject3 & C \\
+            Subject4 & D \\
+            Subject5 & E \\
+            \hline
+            Total & 50 \\
+            \hline
+        \end{tabularx}
+    \end{table}
+}
