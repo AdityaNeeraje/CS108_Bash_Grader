@@ -2504,7 +2504,8 @@ function grade_manual() {
             total_present=1
         fi
     fi
-    python3 - "$WORKING_DIRECTORY" "$total_present" << EOF
+    platform=$(echo $XDG_SESSION_TYPE)
+    python3 - "$WORKING_DIRECTORY" "$total_present" "$platform" << EOF
 import sys
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -2512,7 +2513,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize
 from matplotlib.cm import *
+import matplotlib
 from time import sleep
+
+if sys.argv[2] != "wayland":
+    matplotlib.use('GTK3Agg')
 
 working_directory=sys.argv[1]
 total_present=int(sys.argv[2])
