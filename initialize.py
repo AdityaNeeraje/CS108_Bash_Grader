@@ -1,6 +1,5 @@
 #!/us//bin/python
 import numpy as np
-np.random.seed(0)
 
 quizzes_list = ["quiz1.csv", "quiz2.csv", "endsem.csv", "quiz 2.csv"]
 

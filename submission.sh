@@ -1604,15 +1604,89 @@ function update() {
                 exit
             } ' "$WORKING_DIRECTORY/main.csv")
     fi
+    declare -A quiz_files=()
+    index=0
+    while [[ $index -lt ${#labels[@]} ]]; do 
+        label=${labels[$index]}
+        if [[ -n "${quiz_files["${label%%~*}.csv"]}" ]]; then
+            quiz_files["${label%%~*}.csv"]="${quiz_files["${label%%~*}.csv"]},${label#*~}~${scores[$index]}"
+        else
+            quiz_files["${label%%~*}.csv"]="${label#*~}~${scores[$index]}"
+        fi
+        let index++
+    done
     IFS=$'\x19'
-    awk -v LABELS="${labels[*]}" -v SCORES="${scores[*]}" '
+    readarray -t factors < <(
+    awk -v working_directory="$WORKING_DIRECTORY" -v LABELS="${labels[*]}" '
+        BEGIN {
+            FS=","
+            OFS=","
+            split(LABELS, LABELS_ARRAY, "\x19")
+            for (i in LABELS_ARRAY){
+                split(LABELS_ARRAY[i], TEMP_ARRAY, "~") 
+                if (!(TEMP_ARRAY[1] in quiz_weights)){
+                    quiz_weights[TEMP_ARRAY[1]]=1
+                }
+            }
+        }
+        NR == 1 {
+            for (i=3; i <= NF; i++){
+                if ($i ~ /^Total[[:space:]]*$/){
+                    continue
+                }
+                rescaling_factor[i]=1
+                if ($i in quiz_weights){
+                    quizzes[i]=$i
+                    quiz_weights[$i]=i
+                }
+            }
+        }
+        NR > 1 {
+            roll_number=$1
+            for (i=3; i <= NF; i++){
+                if (i in quizzes){
+                    if ($i ~ /^[[:space:]]*a[[:space:]]*$/){
+                        continue
+                    }
+                    output=working_directory "/" quizzes[i] ".csv"
+                    while ((getline line < output) > 0){
+                        if (line ~ roll_number){
+                            split(line, TEMP_ARRAY, ",")
+                            score=TEMP_ARRAY[3]
+                            marks=$i
+                            rescaling_factor[i]=marks/score
+                        }
+                    }
+                    close(working_directory "/" quizzes[i] ".csv")
+                    delete quiz_weights[quizzes[i]]
+                    delete quizzes[i]
+                }
+            }
+            if (length(quiz_weights) == 0){
+                for (factor in rescaling_factor){
+                    print rescaling_factor[factor]
+                }
+                exit
+            }
+        }
+    ' "$WORKING_DIRECTORY/main.csv"
+    )
+    IFS=$'\x19'
+    awk -v LABELS="${labels[*]}" -v SCORES="${scores[*]}" -v FACTORS="${factors[*]}" '
         BEGIN {
             FS=","
             OFS=","
             split(LABELS, LABELS_ARRAY, "\x19")
             split(SCORES, SCORES_ARRAY, "\x19")
+            split(FACTORS, FACTORS_ARRAY, "\x19")
+        }
+        NR == 1 {
+            for (i = 3; i <= NF; i++){
+                quizzes[$i]=i
+            }
             for (i in LABELS_ARRAY){ # Labels array has the format quiz_name-roll_number
                 split(LABELS_ARRAY[i], TEMP_ARRAY, "~")
+                SCORES_ARRAY[i]*=FACTORS_ARRAY[quizzes[TEMP_ARRAY[1]]-2]
                 # I plan to make roll_numbers of the format quiz_name~scores separated by commas
                 if (TEMP_ARRAY[2] in roll_numbers){
                     roll_numbers[TEMP_ARRAY[2]]=roll_numbers[TEMP_ARRAY[2]] "," TEMP_ARRAY[1] "~" SCORES_ARRAY[i]
@@ -1621,11 +1695,6 @@ function update() {
                     roll_numbers[TEMP_ARRAY[2]]=TEMP_ARRAY[1] "~" SCORES_ARRAY[i]
                     # Roll_numbers is of the format quiz_name~score,quiz_name~score
                 }
-            }
-        }
-        NR == 1 {
-            for (i = 3; i <= NF; i++){
-                quizzes[$i]=i
             }
             print $0
         }
@@ -1643,17 +1712,6 @@ function update() {
         }
         ' "$WORKING_DIRECTORY/main.csv" > "$WORKING_DIRECTORY/$TEMPORARY_FILE"
     mv "$WORKING_DIRECTORY/$TEMPORARY_FILE" "$WORKING_DIRECTORY/main.csv"
-    declare -A quiz_files=()
-    index=0
-    while [[ $index -lt ${#labels[@]} ]]; do 
-        label=${labels[$index]}
-        if [[ -n "${quiz_files["${label%%~*}.csv"]}" ]]; then
-            quiz_files["${label%%~*}.csv"]="${quiz_files["${label%%~*}.csv"]},${label#*~}~${scores[$index]}"
-        else
-            quiz_files["${label%%~*}.csv"]="${label#*~}~${scores[$index]}"
-        fi
-        let index++
-    done
     for quiz in "${!quiz_files[@]}"; do
         awk -v NEW_DATA="${quiz_files[$quiz]}" -v Present_WD="$WORKING_DIRECTORY" '
             BEGIN {

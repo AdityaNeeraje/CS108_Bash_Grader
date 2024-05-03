@@ -1,0 +1,362 @@
+--- "/home/aditya/Aditya/IIT Bombay/Freshman Year/CS108_Project/CS108_Bash_Grader/.my_git/3467A17390BB7096/endsem.csv"	2024-05-03 18:51:24.772450139 +0530
++++ "/home/aditya/Aditya/IIT Bombay/Freshman Year/CS108_Project/CS108_Bash_Grader/endsem.csv"	2024-05-03 18:52:36.677021932 +0530
+@@ -1,179 +1,181 @@
+ Roll_Number,Name,Marks
+-210050102,Murala Vamshi,17.86
+-23B0901,Kaushal Vijayvergiya,17.29
+-23B0902,Arya Suwalka,12.05
+-23B0903,Abhi Jain,25.13
+-23B0905,Sagnik Nandi,14.1
+-23B0906,Velagala Deeraj Sathvik Reddy,8.94
+-23B0907,Hari Shankar Karthik,23.87
+-23B0908,Raghav Goyal,18.54
+-23B0909,Varri Shyam Sri Vardhan,23.36
+-23B0910,Sonal Kumari,18.09
+-23B0911,Kalla Lakshmi Surya,19.58
+-23B0912,Sanapala Venkata Aditya,14.98
+-23B0913,Dipen Sojitra,20.37
+-23B0914,Suvvada Mounisha Naidu,28.12
+-23B0915,Nandipati Sai Durga Reddy,14.51
+-23B0916,Vanguri Eshwar,18.41
+-23B0917,Rajat Das,19.55
+-23B0918,Banoth Tharun Tej,21.73
+-23B0919,Yougank Kumar,30
+-23B0920,Maradana Dheeraj Kumar,16.73
+-23B0921,Ishita,21.23
+-23B0922,Akshara,16.37
+-23B0923,Abhineet Majety,23.28
+-23B0924,Bondala Somanath Vasanth Yadav,28.34
+-23B0925,Vangapandu Venkata Sai Surya Prakash,10.95
+-23B0926,Chaitanyaa Mahesh Maheshwari,10.81
+-23B0927,Gowri K Balakrishnan,18.9
+-23B0929,Nayakanti Naga Bhavya Sree,12.24
+-23B0930,Mehul Borad,0
+-23B0931,Haresh Gupta,7.79
+-23B0932,Tejas Narendra Chaudhari,18.42
+-23B0933,Sarthak Dhananjay Thakare,19.0
+-23B0934,Yash Singh,8.22
+-23B0935,Potnuru Saatvika,16.3
+-23B0936,Meesala Pranathi Sreeja,20.86
+-23B0937,Nikhil Narera,21.95
+-23B0938,Deshank Pratap Singh,16.47
+-23B0939,Bathula Rithvik,28.21
+-23B0940,Aditya Neeraje,15.21
+-23B0941,Maradana Anusri,27.64
+-23B0942,Dhruv Sanjay Jain,23.43
+-23B0943,Shaik Sahil Chanda,9.81
+-23B0944,Aayush Martand Borkar,26.23
+-23B0945,Akshit Kumar,5.71
+-23B0946,Itthagoni Sathwik Goud,8.41
+-23B0947,Akepati Sriya,19.41
+-23B0948,Kritin Gupta,17.88
+-23B0949,Kamyak Channa,6.17
+-23B0950,Harshit Raj,16.8
+-23B0951,Jatsya Jariwala,26.19
+-23B0952,Punumalli Lohit Adhitya Sai,14.11
+-23B0953,Aakash Gupta,28.72
+-23B0954,Bavurupudi Ritwik,7.0
+-23B0955,Gulshan Kumar,16.27
+-23B0956,Siddhant Mulkikar,21.88
+-23B0957,Kunumalla Gautam Siddharth,18.61
+-23B0958,Satyam Sinoliya,16.46
+-23B0960,J Adarsh,21.84
+-23B0961,Arijit Mandal,14.95
+-23B0962,Banothu Sonusree,23.9
+-23B0963,Komrelly Snigdha Reddy,20.71
+-23B0965,Nakka Mahathi,14.64
+-23B0966,Ananya Latchupatula,16.6
+-23B0967,Guduru Adarsh,14.36
+-23B0968,Suthar Harshul Sanjaybhai,24.59
+-23B0969,Yakkanti Pani Venkata Maneendhar Reddy,16.13
+-23B0970,Priyanshu Kumar,16.53
+-23B0971,Mayank Soni,23.48
+-23B0972,Komarapu Vivek Vardhan,16.2
+-23B0973,Sammeta Avaneesh Sai,13.55
+-23B0974,Krish Gupta,28.73
+-23B0975,Menda V Venkata Harsha Vardhan,22.98
+-23B0976,Boyina Sanjana,25.92
+-23B0977,Keyaan Kartikeya Rajesh,13.35
+-23B0978,Gowdu Charishma,9.97
+-23B0979,Satyala Madhu Kiran,15.0
+-23B0980,Mradul Sonkar,16.19
+-23B0981,Repudi Akshay Karthik,11.94
+-23B0982,Navya Garg,19.99
+-23B0983,Konda Puspa Kumar Reddy,25.65
+-23B0984,Varala Charishma,11.97
+-23B0985,Jashanpreet Singh,13.65
+-23B0986,Tanishq Mahesh Mandhane,24.37
+-23B0987,Dasari Saketh Naidu,22.13
+-23B0988,Prabhav Khandelwal,15.97
+-23B0989,Gaurav Kumar,5.85
+-23B0990,Pothina Madhav,25.47
+-23B0991,Shravya Karna,15.78
+-23B0992,Dumpala Paneendra Nadha Reddy,18.86
+-23B0993,Kethavath Nithin Naik,21.75
+-23B0994,Vavilala Chidvilas Reddy,19.98
+-23B0995,Kunj Bhesaniya,27.97
+-23B0996,Punit Kumar,14.9
+-23B0997,Thammaneni Dheeraj,25.59
+-23B0998,Velamakanni Satwik,20.01
+-23B0999,Yuvraj Gupta,20.95
+-23B1000,Paluri Gnana Kousik Reddy,23.42
+-23B1001,Vadde Shanvitha Reddy,17.66
+-23B1002,Sasthrula Joel Tenny,9.0
+-23B1003,Abhinav Singh,11.12
+-23B1004,Karri Ganga Dhana Sri,24.93
+-23B1005,Sara Mukherjee,12.6
+-23B1006,Sandeep Reddy Nallamilli,26.4
+-23B1007,Shivam Singh Yadav,25.18
+-23B1008,Jainendrajeet,8.05
+-23B1009,Udit Sarkar,13.92
+-23B1010,Pudi Ajay Kumar,17.23
+-23B1011,Abhilasha Sharma Suman,14.96
+-23B1012,Burri Gehna Chelvi,18.3
+-23B1014,Peela Teja Sri,17.33
+-23B1015,Pinnu Shasank Reddy,15.28
+-23B1016,Harshil Amitkumar Solanki,15.36
+-23B1017,Evuri Mohana Sreedhara Reddy,0
+-23B1018,Bikkina Abhinav Chowdary,21.89
+-23B1019,Chirag Gautam,10.93
+-23B1020,Chennu Rakesh Kumar Reddy,19.47
+-23B1021,Sambangi Varshini,18.67
+-23B1022,Rayapati Dinesh Sai,16.49
+-23B1024,Pendurthi Nischal Subhash,19.2
+-23B1025,Somya Dahiaya,11.86
+-23B1027,Dola Surya Sai,23.73
+-23B1028,Ashish Kumar,13.17
+-23B1029,Karedla Balaji,20.54
+-23B1030,Vaka Sri Varshitha,15.99
+-23B1032,Vysyaraju Srikar Nihal,15.85
+-23B1033,Chinthaparthi Babu Sujan Reddy,13.16
+-23B1034,Malay Kedia,20.59
+-23B1035,Sameer Arvind Patil,11.8
+-23B1037,Vennela Yasasvi Naidu,14.81
+-23B1038,N.K.Vishwaajith,17.28
+-23B1039,Nenavath Sree Vamshi Madhav,16.25
+-23B1040,B Shashank,7.4
+-23B1041,Merchant Dhruvraj Vijaykumar,12.5
+-23B1042,Sangadi Vijaya Raghavendra,17.61
+-23B1043,Yash Vikas Sabale,20.04
+-23B1044,Moulik Jindal,30
+-23B1045,Niral Charan,11.07
+-23B1046,Kokkiligadda Manaswi,23.97
+-23B1047,Tapase Aditi Maniklal,12.54
+-23B1048,Sanchita Chaurasia,15.8
+-23B1049,Ridam Jain,14.31
+-23B1050,Ujwal L Shankar,20.66
+-23B1051,Aman Nehra,23.73
+-23B1052,Ramachandran S,17.97
+-23B1053,Aditi Singh,19.08
+-23B1054,Pathi Nikitha,24.41
+-23B1055,Sanapala Anirudh,20.84
+-23B1056,Addagada Venkata Sivaram,24.11
+-23B1057,Sabil Ahmad,9.75
+-23B1058,Udtyavath Sai Likhith,14.93
+-23B1059,Allam Sujay,28.87
+-23B1060,Madhav R Babu,22.04
+-23B1061,Devangam Kishan Teja,23.46
+-23B1062,Ramesh Surya Theja,11.0
+-23B1063,Gunda Sushanth,24.29
+-23B1064,Chaudhari Avinash Janardhan,27.92
+-23B1065,Devang Tibrewal,18.92
+-23B1066,Kunsoth Chandrashen Nayak,13.4
+-23B1067,Harsh Suthar,13.98
+-23B1068,Vaibhav Singh,16.13
+-23B1069,Uday Gajanan Darade,26.33
+-23B1070,Bhukya Akkshitha Rathod,23.68
+-23B1071,Inampudi Harshitha,13.95
+-23B1072,Ette Hasini,19.0
+-23B1073,Marumamula Venkata Pranay,18.02
+-23B1074,Saksham Jain,1.59
+-23B1075,Shiv Narang,30
+-23B1076,Aryan Mahajan,21.86
+-23B1077,Bhavya Bansal,17.43
+-23B1078,Saksham Saharia,12.48
+-23B1079,Sumedh S S,14.88
+-23B1080,Shaik Awez Mehtab,13.69
+-23B1081,Rishi Kalra,19.65
+-23B1082,Dheeravath Thanuj,13.35
+-23B1083,Jigyasa Chouhan,16.83
+-23B1084,Guthikonda Abhiram,13.66
+-23B1085,Harith S,9.53
+-23V0066,Hsi Yu Ho,29.01
++210050102,Murala Vamshi,6.28
++23B0901,Kaushal Vijayvergiya,7.13
++23B0902,Arya Suwalka,5.41
++23B0903,Abhi Jain,15.11
++23B0904,Prakhar Jain,18.63
++23B0905,Sagnik Nandi,10.1
++23B0906,Velagala Deeraj Sathvik Reddy,10.2
++23B0907,Hari Shankar Karthik,12.87
++23B0908,Raghav Goyal,19.03
++23B0909,Varri Shyam Sri Vardhan,13.3
++23B0910,Sonal Kumari,8.72
++23B0911,Kalla Lakshmi Surya,11.36
++23B0912,Sanapala Venkata Aditya,16.45
++23B0913,Dipen Sojitra,12.35
++23B0914,Suvvada Mounisha Naidu,14.04
++23B0915,Nandipati Sai Durga Reddy,17.73
++23B0916,Vanguri Eshwar,14.21
++23B0917,Rajat Das,13.45
++23B0918,Banoth Tharun Tej,14.19
++23B0919,Yougank Kumar,9.61
++23B0920,Maradana Dheeraj Kumar,11.37
++23B0921,Ishita,9.82
++23B0922,Akshara,10.21
++23B0923,Abhineet Majety,5.62
++23B0924,Bondala Somanath Vasanth Yadav,13.16
++23B0925,Vangapandu Venkata Sai Surya Prakash,17.57
++23B0926,Chaitanyaa Mahesh Maheshwari,13.74
++23B0927,Gowri K Balakrishnan,10.6
++23B0928,Anushka Singhal,4.64
++23B0929,Nayakanti Naga Bhavya Sree,11.65
++23B0930,Mehul Borad,16.18
++23B0931,Haresh Gupta,16.96
++23B0932,Tejas Narendra Chaudhari,4.8
++23B0933,Sarthak Dhananjay Thakare,15.42
++23B0934,Yash Singh,20
++23B0935,Potnuru Saatvika,11.81
++23B0936,Meesala Pranathi Sreeja,5.41
++23B0937,Nikhil Narera,9.3
++23B0938,Deshank Pratap Singh,14.69
++23B0939,Bathula Rithvik,12.94
++23B0940,Aditya Neeraje,13.48
++23B0941,Maradana Anusri,9.45
++23B0942,Dhruv Sanjay Jain,10.32
++23B0943,Shaik Sahil Chanda,8.65
++23B0944,Aayush Martand Borkar,8.11
++23B0945,Akshit Kumar,9.64
++23B0946,Itthagoni Sathwik Goud,8.49
++23B0947,Akepati Sriya,9.09
++23B0948,Kritin Gupta,13.14
++23B0949,Kamyak Channa,13.26
++23B0950,Harshit Raj,12.54
++23B0951,Jatsya Jariwala,7.59
++23B0952,Punumalli Lohit Adhitya Sai,16.01
++23B0953,Aakash Gupta,11.49
++23B0954,Bavurupudi Ritwik,14.75
++23B0955,Gulshan Kumar,4.69
++23B0956,Siddhant Mulkikar,14.6
++23B0957,Kunumalla Gautam Siddharth,14.77
++23B0958,Satyam Sinoliya,9.81
++23B0960,J Adarsh,9.35
++23B0961,Arijit Mandal,9.95
++23B0962,Banothu Sonusree,11.9
++23B0963,Komrelly Snigdha Reddy,16.04
++23B0964,Seemala Varsha,11.45
++23B0965,Nakka Mahathi,16.38
++23B0966,Ananya Latchupatula,5.24
++23B0967,Guduru Adarsh,5.01
++23B0968,Suthar Harshul Sanjaybhai,6.75
++23B0969,Yakkanti Pani Venkata Maneendhar Reddy,15.79
++23B0970,Priyanshu Kumar,15.64
++23B0971,Mayank Soni,10.13
++23B0972,Komarapu Vivek Vardhan,13.21
++23B0973,Sammeta Avaneesh Sai,14.9
++23B0974,Krish Gupta,9.02
++23B0975,Menda V Venkata Harsha Vardhan,11.23
++23B0976,Boyina Sanjana,7.76
++23B0977,Keyaan Kartikeya Rajesh,7.76
++23B0978,Gowdu Charishma,10.31
++23B0979,Satyala Madhu Kiran,4.58
++23B0980,Mradul Sonkar,17.86
++23B0981,Repudi Akshay Karthik,13.17
++23B0982,Navya Garg,9.45
++23B0983,Konda Puspa Kumar Reddy,15.55
++23B0984,Varala Charishma,15.69
++23B0985,Jashanpreet Singh,16.47
++23B0986,Tanishq Mahesh Mandhane,4.07
++23B0987,Dasari Saketh Naidu,9.62
++23B0988,Prabhav Khandelwal,14.58
++23B0989,Gaurav Kumar,12.79
++23B0990,Pothina Madhav,12.8
++23B0991,Shravya Karna,18.67
++23B0992,Dumpala Paneendra Nadha Reddy,10.03
++23B0993,Kethavath Nithin Naik,10.51
++23B0994,Vavilala Chidvilas Reddy,12.91
++23B0995,Kunj Bhesaniya,15.92
++23B0996,Punit Kumar,11.66
++23B0997,Thammaneni Dheeraj,10.26
++23B0998,Velamakanni Satwik,7.55
++23B0999,Yuvraj Gupta,18.23
++23B1000,Paluri Gnana Kousik Reddy,10.63
++23B1001,Vadde Shanvitha Reddy,14.89
++23B1003,Abhinav Singh,12.76
++23B1004,Karri Ganga Dhana Sri,11.74
++23B1005,Sara Mukherjee,14.77
++23B1006,Sandeep Reddy Nallamilli,16.71
++23B1007,Shivam Singh Yadav,12.25
++23B1008,Jainendrajeet,13.1
++23B1009,Udit Sarkar,5.41
++23B1010,Pudi Ajay Kumar,9.61
++23B1011,Abhilasha Sharma Suman,10.22
++23B1012,Burri Gehna Chelvi,8.85
++23B1014,Peela Teja Sri,15.48
++23B1015,Pinnu Shasank Reddy,16.42
++23B1016,Harshil Amitkumar Solanki,12.03
++23B1017,Evuri Mohana Sreedhara Reddy,8.72
++23B1018,Bikkina Abhinav Chowdary,12.46
++23B1019,Chirag Gautam,16.38
++23B1020,Chennu Rakesh Kumar Reddy,15.4
++23B1021,Sambangi Varshini,18.93
++23B1022,Rayapati Dinesh Sai,8.7
++23B1023,Pushpendra Uikey,20
++23B1024,Pendurthi Nischal Subhash,17.11
++23B1025,Somya Dahiaya,9.81
++23B1026,Duggineni Venkata Yugesh,7.28
++23B1029,Karedla Balaji,17.38
++23B1030,Vaka Sri Varshitha,7.73
++23B1031,Mrunal Shrikant Vairagade,16.97
++23B1032,Vysyaraju Srikar Nihal,14.17
++23B1033,Chinthaparthi Babu Sujan Reddy,5.48
++23B1034,Malay Kedia,11.45
++23B1035,Sameer Arvind Patil,9.34
++23B1036,Kabir S Prakash,7.99
++23B1037,Vennela Yasasvi Naidu,13.96
++23B1038,N.K.Vishwaajith,14.32
++23B1039,Nenavath Sree Vamshi Madhav,10.22
++23B1040,B Shashank,11.78
++23B1041,Merchant Dhruvraj Vijaykumar,9.28
++23B1042,Sangadi Vijaya Raghavendra,12.96
++23B1043,Yash Vikas Sabale,20
++23B1044,Moulik Jindal,3.77
++23B1045,Niral Charan,15.89
++23B1046,Kokkiligadda Manaswi,12.43
++23B1047,Tapase Aditi Maniklal,15.4
++23B1048,Sanchita Chaurasia,6.73
++23B1049,Ridam Jain,16.37
++23B1050,Ujwal L Shankar,9.98
++23B1051,Aman Nehra,19.2
++23B1052,Ramachandran S,8.5
++23B1053,Aditi Singh,11.5
++23B1054,Pathi Nikitha,13.04
++23B1055,Sanapala Anirudh,18.29
++23B1056,Addagada Venkata Sivaram,13.15
++23B1057,Sabil Ahmad,15.53
++23B1058,Udtyavath Sai Likhith,14.43
++23B1059,Allam Sujay,11.49
++23B1060,Madhav R Babu,13.07
++23B1061,Devangam Kishan Teja,11.59
++23B1062,Ramesh Surya Theja,6.06
++23B1064,Chaudhari Avinash Janardhan,12.89
++23B1065,Devang Tibrewal,11.21
++23B1066,Kunsoth Chandrashen Nayak,11.69
++23B1067,Harsh Suthar,18.39
++23B1068,Vaibhav Singh,18.2
++23B1069,Uday Gajanan Darade,10.44
++23B1070,Bhukya Akkshitha Rathod,17.43
++23B1071,Inampudi Harshitha,12.18
++23B1072,Ette Hasini,12.12
++23B1073,Marumamula Venkata Pranay,20
++23B1074,Saksham Jain,10.0
++23B1075,Shiv Narang,16.15
++23B1076,Aryan Mahajan,6.73
++23B1077,Bhavya Bansal,11.85
++23B1078,Saksham Saharia,20
++23B1079,Sumedh S S,18.8
++23B1080,Shaik Awez Mehtab,14.41
++23B1081,Rishi Kalra,9.37
++23B1082,Dheeravath Thanuj,18.37
++23B1084,Guthikonda Abhiram,14.85
++23B1085,Harith S,15.1
++23V0066,Hsi Yu Ho,16.28
